@@ -18,16 +18,17 @@
   }
 
   #map {
-    width: 50%;
+    width: 75%;
     height: 100vh;
   }
 
   #info-box {
-    width: 50%;
+    width: 25%;
     height: 100vh;
     box-sizing: border-box;
     padding: 20px;
     background-color: #f0f0f0;
+    border-left: 1px solid;
   }
 
   .candidate-box {
@@ -83,26 +84,6 @@
 <div id="info-box">
   <h2 id="county-name">Ohio Election Visualizer</h2>
   <div id="candidates">
-    <!--<div class='candidate-box'>
-      <div class='candidate-name'>2023 General</div>
-      <div class='candidate-raw-votes'>November 7</div>
-    </div>
-    <div class='candidate-box'>
-      <div class='candidate-name'>2023 Special</div>
-      <div class='candidate-raw-votes'>August 8</div>
-    </div>
-    <!-- Candidate boxes with dummy values
-    <div class="candidate-box">
-      <div class="candidate-name">Candidate 1</div>
-      <div class="candidate-percentage">45%</div>
-      <div class="candidate-raw-votes">12,000</div>
-    </div>
-    <div class="candidate-box">
-      <div class="candidate-name">Candidate 2</div>
-      <div class="candidate-percentage">30%</div>
-      <div class="candidate-raw-votes">8,000</div>
-    </div>
-    <!-- Add more candidate boxes with dummy values as needed -->
   </div>
 </div>
 
@@ -258,11 +239,10 @@
 
     // Check if, for example, 50% of the state has come back into view
     // You can adjust this threshold as needed
-    if (checkPercentageInView(bounds) > 0.5) {
+    if (checkPercentageInView(bounds) > 0.25) {
       if (map.hasLayer(subdivisionLayer)) {
         map.addLayer(countyLayer);
         map.removeLayer(subdivisionLayer);
-        map.panTo([39.9612, -82.9988]);
       }
     }
   });
