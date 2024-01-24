@@ -35,7 +35,22 @@
     margin-bottom: 10px;
     padding: 10px;
     background-color: #f9f9f9;
+    /*cursor: pointer; /* Add pointer cursor for clickable effect 
+    transition: background-color 0.3s; /* Smooth transition for background color change on mouseover */
   }
+
+  .election-box {
+    cursor: pointer; /* Add pointer cursor for clickable effect  */
+    transition: background-color 0.3s; /* Smooth transition for background color change on mouseover */
+  }
+
+  .election-box:hover {
+    background-color: #e0e0e0;
+  }
+
+  /*.candidate-box:hover {
+    background-color: #e0e0e0; /* Change background color on mouseover */
+  }*/
 
   .candidate-name {
     font-weight: bold;
@@ -52,6 +67,11 @@
     margin-top: 5px;
     color: #888;
   }
+
+  #candidates {
+    overflow-y: auto; /* Make the info-box scrollable */
+    height: 90%;
+  }
   </style>
 </head>
 
@@ -61,9 +81,17 @@
 <!-- Create a div to hold the map -->
 <div id="map"></div>
 <div id="info-box">
-  <h2 id="county-name">State of Ohio</h2>
+  <h2 id="county-name">Ohio Election Visualizer</h2>
   <div id="candidates">
-    <!-- Candidate boxes with dummy values -->
+    <!--<div class='candidate-box'>
+      <div class='candidate-name'>2023 General</div>
+      <div class='candidate-raw-votes'>November 7</div>
+    </div>
+    <div class='candidate-box'>
+      <div class='candidate-name'>2023 Special</div>
+      <div class='candidate-raw-votes'>August 8</div>
+    </div>
+    <!-- Candidate boxes with dummy values
     <div class="candidate-box">
       <div class="candidate-name">Candidate 1</div>
       <div class="candidate-percentage">45%</div>
@@ -77,6 +105,37 @@
     <!-- Add more candidate boxes with dummy values as needed -->
   </div>
 </div>
+
+<script>
+  // this is for our election processing
+
+  /*for (var n in elections) {
+    var election = elections[n];
+
+    var candidateBox = document.createElement('div');
+    candidateBox.classList.add('candidate-box');
+    if (election.enabled == undefined || election.enabled == true) {
+      candidateBox.classList.add('election-box')
+    } else {
+      candidateBox.style.backgroundColor = '#CCCCCC'
+    }
+
+    var ele = document.createElement('div');
+    ele.className = 'candidate-name';
+    ele.textContent = n + " Election";
+
+    var date = document.createElement('div');
+    date.className = 'candidate-raw-votes';
+    date.textContent = election.date;
+
+    candidateBox.appendChild(ele);
+    candidateBox.appendChild(date);
+
+    // Append the candidateBox directly to the candidates container
+    document.getElementById('candidates').appendChild(candidateBox);
+  }*/
+
+</script>
 
 <script>
   function toTitleCase(str) {
@@ -100,8 +159,8 @@
     shp(url).then(function (geojson) {
       if (geojson) {
         countyLayer = L.geoJSON(geojson, {
-          style: {color: 'black', fillColor: 'red', weight: 0.5}
-        }).addTo(map);
+          style: {color: 'black', fillColor: 'black', weight: 0.5}
+        });
 
         countyLayer.on('mouseover', function(event){
           countyLayer.eachLayer(function (otherLayer){
@@ -156,7 +215,7 @@
         });
 
         subdivisionLayer = L.geoJSON(filteredLayer, {
-          style: {color: 'black', fillColor: 'red', weight: 0.5}
+          style: {color: 'black', fillColor: 'black', weight: 0.5}
         }).addTo(map);
 
         subdivisionLayer.on('click', function(event){
@@ -199,11 +258,12 @@
 
     // Check if, for example, 50% of the state has come back into view
     // You can adjust this threshold as needed
-    console.log(checkPercentageInView(bounds))
     if (checkPercentageInView(bounds) > 0.5) {
-      map.addLayer(countyLayer);
-      map.removeLayer(subdivisionLayer);
-      map.panTo([39.9612, -82.9988]);
+      if (map.hasLayer(subdivisionLayer)) {
+        map.addLayer(countyLayer);
+        map.removeLayer(subdivisionLayer);
+        map.panTo([39.9612, -82.9988]);
+      }
     }
   });
 
@@ -216,7 +276,6 @@
 
     // Get the intersection of the state bounds and the current map bounds
     var intersection = getIntersection(bounds, stateBounds);
-    console.log(intersection)
 
     // Calculate the percentage of the state bounds that is in view
     var percentageInView = (intersection.getNorthEast().lat - intersection.getSouthWest().lat) / (stateBounds.getNorthEast().lat - stateBounds.getSouthWest().lat);
