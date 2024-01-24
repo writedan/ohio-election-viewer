@@ -15,16 +15,19 @@
     /* Set map container height */
     #map {
       height: 500px;
+      width:50%;
     }
   </style>
 </head>
+
+
 <body>
 
 <!-- Create a div to hold the map -->
 <div id="map"></div>
 
 <script>
-  // Initialize the map
+    // Initialize the map
   var map = L.map('map').setView([39.9612, -82.9988], 7); // Set initial coordinates and zoom level
 
   // Add a tile layer (you can use other tile providers)
@@ -32,16 +35,83 @@
     attribution: '© OpenStreetMap contributors'
   }).addTo(map);
 
-  // Load Shapefile data
-  var shpfileLayer = new L.Shapefile('http://localhost:3000/2023/tl_2023_39_cousub', {
-    onEachFeature: function (feature, layer) {
-      // You can customize popup content here
-      layer.bindPopup("County Subdivision: " + feature.properties.NAME);
-    }
-  });
+  // Load county Shapefile data using Leaflet Shapefile
+  var countyLayer;
 
-  // Add Shapefile layer to the map
-  shpfileLayer.addTo(map);
+  function loadCountyShapefile(url) {
+    shp(url).then(function (geojson) {
+      if (geojson) {
+        countyLayer = L.geoJSON(geojson, {
+          style: {color: 'black', fillColor: 'red', weight: 0.5}
+        }).addTo(map);
+
+        countyLayer.on('mouseover', function(event){
+          L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.COUNTY).openOn(map);
+        });
+
+        countyLayer.on('mouseout', function(event){
+          map.closePopup();
+        });
+
+        // Handle click event on county layer
+        countyLayer.on('click', function (event) {
+          // Get clicked county feature
+          var countyFeature = event.layer.feature;
+
+          // Zoom to the clicked county
+          map.fitBounds(event.layer.getBounds());
+
+          // Load and show subdivisions layer
+          loadSubdivisionShapefile('http://localhost:3000/2023/tl_2023_39_cousub', countyFeature);
+
+          // Remove the county layer
+          map.removeLayer(countyLayer);
+        });
+      } else {
+        console.error('Error loading county Shapefile.');
+      }
+    }).catch(function (error) {
+      console.log(error)
+      console.error('Error loading county Shapefile:', error);
+    });
+  }
+
+  function loadSubdivisionShapefile(url, countyFeature) {
+    console.log(countyFeature)
+    shp(url).then(function (geojson) {
+      if (geojson) {
+        // remove those which are not part of this county
+        var filteredLayer = geojson.features.filter(function (feature) {
+          return ("39" + feature.properties.COUNTYFP) == countyFeature.properties.FIPS_COUNT;
+        });
+
+        var subdivisionLayer = L.geoJSON(filteredLayer, {
+          style: {color: 'black', fillColor: 'red', weight: 0.5}
+        }).addTo(map);
+
+        subdivisionLayer.on('click', function(event){
+          console.log(event.layer.feature);
+        });
+
+        subdivisionLayer.on('mouseover', function(event){
+          L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.NAMELSAD).openOn(map);
+        });
+
+        subdivisionLayer.on('mouseout', function () {
+          subdivisionLayer.resetStyle(subdivisionLayer);
+          map.closePopup();
+        });
+      } else {
+        console.error('Error loading subdivision Shapefile.');
+      }
+    }).catch(function (error) {
+      console.error('Error loading subdivision Shapefile:', error);
+    });
+  }
+
+  // Load the initial county Shapefile
+  loadCountyShapefile('http://localhost:3000/county/REFER_COUNTY');
+
 </script>
 
 </body>
