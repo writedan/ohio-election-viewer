@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ohio County Subdivisions Election Visualizer</title>
+  <title>Ohio Election Visualizer</title>
   <!-- Include Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <!-- Include Leaflet JavaScript -->
@@ -12,11 +12,46 @@
   <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
   <script src="http://calvinmetcalf.github.io/leaflet.shapefile/leaflet.shpfile.js"></script>
   <style>
-    /* Set map container height */
-    #map {
-      height: 500px;
-      width:50%;
-    }
+    body {
+    margin: 0;
+    display: flex;
+  }
+
+  #map {
+    width: 50%;
+    height: 100vh;
+  }
+
+  #info-box {
+    width: 50%;
+    height: 100vh;
+    box-sizing: border-box;
+    padding: 20px;
+    background-color: #f0f0f0;
+  }
+
+  .candidate-box {
+    border: 1px solid #ccc;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: #f9f9f9;
+  }
+
+  .candidate-name {
+    font-weight: bold;
+    margin-bottom: 5px;
+  }
+
+  .candidate-percentage {
+    float: right;
+    margin-top: -20px; /* Adjust as needed for alignment */
+  }
+
+  .candidate-raw-votes {
+    font-size: 0.8em;
+    margin-top: 5px;
+    color: #888;
+  }
   </style>
 </head>
 
@@ -25,8 +60,31 @@
 
 <!-- Create a div to hold the map -->
 <div id="map"></div>
+<div id="info-box">
+  <h2 id="county-name">State of Ohio</h2>
+  <div id="candidates">
+    <!-- Candidate boxes with dummy values -->
+    <div class="candidate-box">
+      <div class="candidate-name">Candidate 1</div>
+      <div class="candidate-percentage">45%</div>
+      <div class="candidate-raw-votes">12,000</div>
+    </div>
+    <div class="candidate-box">
+      <div class="candidate-name">Candidate 2</div>
+      <div class="candidate-percentage">30%</div>
+      <div class="candidate-raw-votes">8,000</div>
+    </div>
+    <!-- Add more candidate boxes with dummy values as needed -->
+  </div>
+</div>
 
 <script>
+  function toTitleCase(str) {
+    return str.replace(/\w\S*/g, function (txt) {
+      return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+    });
+  }
+
     // Initialize the map
   var map = L.map('map').setView([39.9612, -82.9988], 7); // Set initial coordinates and zoom level
 
@@ -36,7 +94,7 @@
   }).addTo(map);
 
   // Load county Shapefile data using Leaflet Shapefile
-  var countyLayer;
+  var countyLayer, subdivisionLayer;
 
   function loadCountyShapefile(url) {
     shp(url).then(function (geojson) {
@@ -46,11 +104,23 @@
         }).addTo(map);
 
         countyLayer.on('mouseover', function(event){
-          L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.COUNTY).openOn(map);
+          countyLayer.eachLayer(function (otherLayer){
+            if (otherLayer !== event.layer) {
+              otherLayer.setStyle({
+                fillOpacity: 0
+              })
+            }
+          }) 
+          //L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.COUNTY).openOn(map);
+          document.getElementById('county-name').innerHTML = toTitleCase(event.layer.feature.properties.COUNTY) + " County";
         });
 
         countyLayer.on('mouseout', function(event){
-          map.closePopup();
+          countyLayer.resetStyle(event.layer)
+          //map.closePopup();
+          countyLayer.eachLayer(function (layer) {
+            countyLayer.resetStyle(layer);
+          })
         });
 
         // Handle click event on county layer
@@ -85,7 +155,7 @@
           return ("39" + feature.properties.COUNTYFP) == countyFeature.properties.FIPS_COUNT;
         });
 
-        var subdivisionLayer = L.geoJSON(filteredLayer, {
+        subdivisionLayer = L.geoJSON(filteredLayer, {
           style: {color: 'black', fillColor: 'red', weight: 0.5}
         }).addTo(map);
 
@@ -94,12 +164,21 @@
         });
 
         subdivisionLayer.on('mouseover', function(event){
-          L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.NAMELSAD).openOn(map);
+          //L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.NAMELSAD).openOn(map);
+          document.getElementById('county-name').innerHTML = toTitleCase(event.layer.feature.properties.NAMELSAD)
+          subdivisionLayer.eachLayer(function (otherLayer) {
+            if (otherLayer !== event.layer) {
+              otherLayer.setStyle({
+                fillOpacity: 0
+              })
+            }
+          })
         });
 
-        subdivisionLayer.on('mouseout', function () {
-          subdivisionLayer.resetStyle(subdivisionLayer);
-          map.closePopup();
+        subdivisionLayer.on('mouseout', function (event) {
+          subdivisionLayer.eachLayer(function (layer){
+            subdivisionLayer.resetStyle(layer);
+          })
         });
       } else {
         console.error('Error loading subdivision Shapefile.');
@@ -110,7 +189,51 @@
   }
 
   // Load the initial county Shapefile
-  loadCountyShapefile('http://localhost:3000/county/REFER_COUNTY');
+  var counties = loadCountyShapefile('http://localhost:3000/county/REFER_COUNTY');
+
+
+  // Listen for map moveend event
+  map.on('zoomend', function () {
+    // Get the current bounds of the map
+    var bounds = map.getBounds();
+
+    // Check if, for example, 50% of the state has come back into view
+    // You can adjust this threshold as needed
+    console.log(checkPercentageInView(bounds))
+    if (checkPercentageInView(bounds) > 0.5) {
+      map.addLayer(countyLayer);
+      map.removeLayer(subdivisionLayer);
+      map.panTo([39.9612, -82.9988]);
+    }
+  });
+
+  function checkPercentageInView(bounds) {
+    // Define the bounding box of the state (adjust these coordinates based on your state)
+    var stateBounds = L.latLngBounds(
+      L.latLng(37.7719, -85.6052), // Southwest corner
+      L.latLng(41.9773, -80.5188)  // Northeast corner
+    );
+
+    // Get the intersection of the state bounds and the current map bounds
+    var intersection = getIntersection(bounds, stateBounds);
+    console.log(intersection)
+
+    // Calculate the percentage of the state bounds that is in view
+    var percentageInView = (intersection.getNorthEast().lat - intersection.getSouthWest().lat) / (stateBounds.getNorthEast().lat - stateBounds.getSouthWest().lat);
+
+    // You can adjust the threshold percentage as needed (e.g., 0.5 for 50%)
+    return percentageInView;
+  }
+
+  // Function to calculate the intersection of two bounding boxes
+  function getIntersection(bounds1, bounds2) {
+    var swLat = Math.max(bounds1.getSouthWest().lat, bounds2.getSouthWest().lat);
+    var swLng = Math.max(bounds1.getSouthWest().lng, bounds2.getSouthWest().lng);
+    var neLat = Math.min(bounds1.getNorthEast().lat, bounds2.getNorthEast().lat);
+    var neLng = Math.min(bounds1.getNorthEast().lng, bounds2.getNorthEast().lng);
+
+    return L.latLngBounds(L.latLng(swLat, swLng), L.latLng(neLat, neLng));
+  }
 
 </script>
 
