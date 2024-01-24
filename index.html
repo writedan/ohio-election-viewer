@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ohio County Subdivisions Election Visualizer</title>
+  <!-- Include Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Include Leaflet JavaScript -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Include Leaflet Shapefile JavaScript -->
+  <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
+  <script src="http://calvinmetcalf.github.io/leaflet.shapefile/leaflet.shpfile.js"></script>
+  <style>
+    /* Set map container height */
+    #map {
+      height: 500px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Create a div to hold the map -->
+<div id="map"></div>
+
+<script>
+  // Initialize the map
+  var map = L.map('map').setView([39.9612, -82.9988], 7); // Set initial coordinates and zoom level
+
+  // Add a tile layer (you can use other tile providers)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+
+  // Load Shapefile data
+  var shpfileLayer = new L.Shapefile('http://localhost:3000/2023/tl_2023_39_cousub', {
+    onEachFeature: function (feature, layer) {
+      // You can customize popup content here
+      layer.bindPopup("County Subdivision: " + feature.properties.NAME);
+    }
+  });
+
+  // Add Shapefile layer to the map
+  shpfileLayer.addTo(map);
+</script>
+
+</body>
+</html>
