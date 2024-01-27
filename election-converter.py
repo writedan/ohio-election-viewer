@@ -102,4 +102,48 @@ for idx, precinct in df.iterrows():
 	for m in cursor.fetchall():
 		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES('{precinctName}', '{m[0]}')")
 
-print("Converting election data.")
+for worksheet in electionWorkbook.sheetnames:
+	if (worksheet == 'Contents' or worksheet == 'Master'):
+		continue
+	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES ('{worksheet}', '{electionInfoId}')")
+	officeCategoryId = cursor.lastrowid
+
+	print("Processing election category", worksheet)
+
+	worksheet = electionWorkbook[worksheet]
+
+	# offices = {}
+	lastOffice = ''
+	officeElectionId = -1
+
+	for columnIdx in range(9, worksheet.max_column): # 9th column idx = 'I'
+		val = worksheet.cell(row=1, column=columnIdx).value
+		if (val is not None):
+			val = val.strip()
+			print("\tProcessing office", val)
+			# we have a new office
+			lastOffice = val
+			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES('{lastOffice}', '{officeCategoryId}')")
+			officeElectionId = cursor.lastrowid
+
+		candidateName = worksheet.cell(row=2, column=columnIdx).value
+		candidateName.replace('\n', ' - ')
+		print("\t\tProcessing candidate", candidateName)
+
+		if (candidateName[-1] == '*'):
+			print("\t\t\tWrite-in candidates are not collated. Rejected.")
+			continue
+
+		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES('{candidateName}', '{officeElectionId}')")
+		candidateId = cursor.lastrowid
+
+		for rowIdx in range(4, worksheet.max_row):
+			countyName = worksheet.cell(row=rowIdx,column=1).value + ' County'
+			precinctName = worksheet.cell(row=rowIdx,column=2).value
+			candidateVotes = worksheet.cell(row=rowIdx,column=columnIdx).value
+			cursor.execute("SELECT id FROM precincts WHERE countyName='{countyName}' AND precinctName='{precinctName}' AND electionId='electionInfoId'")
+
+			for p in cursor.fetchall():
+				precinctId = p[0]
+				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES('{candidateVotes}', '{candidateId}', '{precinctId}')")
+
