@@ -1,5 +1,5 @@
 .DS_Store
 ~$*
-*-election.xlsx
+*-election-*.xlsx
 *-subdivision-codes.xlsx
 backup.db*
