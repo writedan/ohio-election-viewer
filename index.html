@@ -75,15 +75,17 @@
   }
 
   .back-button {
-    border: 2px solid #007bff;
     cursor: pointer;
     transition: background-color 0.3s;
     transition: color 0.3s;
+    background-color: #2554a9;
+    color: white;
   }
 
   .back-button:hover {
-    background-color: #2554a9;
-    color: white;
+    background-color: #f9f9f9;
+    color: black;
+    border: 2px solid #007bff;
   }
   </style>
 
@@ -141,44 +143,8 @@
     let countyLayer;
     await shp(url).then(function (geojson) {
       if (geojson) {
-        countyLayer = L.geoJSON(geojson, {
-          style: {color: 'black', fillColor: 'black', weight: 0.5}
-        });
-
-        countyLayer.on('mouseover', function(event){
-          countyLayer.eachLayer(function (otherLayer){
-            if (otherLayer !== event.layer) {
-              otherLayer.setStyle({
-                fillOpacity: 0
-              })
-            }
-          }) 
-          //L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.COUNTY).openOn(map);
-          document.getElementById('county-name').innerHTML = toTitleCase(event.layer.feature.properties.COUNTY) + " County";
-        });
-
-        countyLayer.on('mouseout', function(event){
-          countyLayer.resetStyle(event.layer)
-          //map.closePopup();
-          countyLayer.eachLayer(function (layer) {
-            countyLayer.resetStyle(layer);
-          })
-        });
-
-        // Handle click event on county layer
-        countyLayer.on('click', function (event) {
-          // Get clicked county feature
-          var countyFeature = event.layer.feature;
-
-          // Zoom to the clicked county
-          map.fitBounds(event.layer.getBounds());
-
-          // Load and show subdivisions layer
-          loadSubdivisionShapefile('http://localhost:3000/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/subdivision/subdivision', countyFeature);
-
-          // Remove the county layer
-          map.removeLayer(countyLayer);
-        });
+        countyLayer = L.geoJSON(geojson);
+        console.log("County shapefile loaded.")
       } else {
         console.error('Error loading county Shapefile.');
       }
@@ -186,44 +152,15 @@
       console.log(error)
       console.error('Error loading county Shapefile:', error);
     });
-    return countyLayer;
+    manifest.countyLayer = countyLayer;
   }
 
-  async function loadSubdivisionShapefile(url, countyFeature) {
-    console.log(countyFeature);
+  async function loadSubdivisionShapefile(url) {
     let subdivisionLayer;
     await shp(url).then(function (geojson) {
       if (geojson) {
-        // remove those which are not part of this county
-        var filteredLayer = geojson.features.filter(function (feature) {
-          return ("39" + feature.properties.COUNTYFP) == countyFeature.properties.FIPS_COUNT;
-        });
-
-        subdivisionLayer = L.geoJSON(filteredLayer, {
-          style: {color: 'black', fillColor: 'black', weight: 0.5}
-        }).addTo(map);
-
-        subdivisionLayer.on('click', function(event){
-          console.log(event.layer.feature);
-        });
-
-        subdivisionLayer.on('mouseover', function(event){
-          //L.popup().setLatLng(event.latlng).setContent(event.layer.feature.properties.NAMELSAD).openOn(map);
-          document.getElementById('county-name').innerHTML = toTitleCase(event.layer.feature.properties.NAMELSAD)
-          subdivisionLayer.eachLayer(function (otherLayer) {
-            if (otherLayer !== event.layer) {
-              otherLayer.setStyle({
-                fillOpacity: 0
-              })
-            }
-          })
-        });
-
-        subdivisionLayer.on('mouseout', function (event) {
-          subdivisionLayer.eachLayer(function (layer){
-            subdivisionLayer.resetStyle(layer);
-          })
-        });
+        subdivisionLayer = L.geoJSON(geojson);
+        console.log("Loaded subdivision shapefile")
       } else {
         console.error('Error loading subdivision Shapefile.');
       }
@@ -231,12 +168,8 @@
       console.error('Error loading subdivision Shapefile:', error);
     });
 
-    return subdivisionLayer;
+    manifest.subdivisionLayer = subdivisionLayer;
   }
-
-  // Load the initial county Shapefile
-  //var counties = loadCountyShapefile('http://localhost:3000/county/REFER_COUNTY');
-
 
   // Listen for map moveend event
   map.on('zoomend', function () {
@@ -246,9 +179,9 @@
     // Check if, for example, 50% of the state has come back into view
     // You can adjust this threshold as needed
     if (checkPercentageInView(bounds) > 0.25) {
-      if (map.hasLayer(subdivisionLayer)) {
-        map.addLayer(countyLayer);
-        map.removeLayer(subdivisionLayer);
+      if (map.hasLayer(manifest.subdivisionLayer)) {
+        map.addLayer(manifest.countyLayer);
+        map.removeLayer(manifest.subdivisionLayer);
       }
     }
   });
@@ -319,7 +252,7 @@
 
       var candidateVotes = document.createElement("div")
       candidateVotes.className = "candidate-raw-votes"
-      candidateVotes.innerHTML = election.date
+      candidateVotes.innerHTML = election.date + ', ' + election.year;
       candidate.appendChild(candidateVotes)
 
       candidateBox.appendChild(candidate);
@@ -331,6 +264,13 @@
   }
 
   function loadCategoryManifest(electionId) {
+    // at this point we have enough information to load the county and subdivision layers
+    manifest.layerLoading = async function(){
+      var url = 'http://localhost:3000/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/'
+      loadCountyShapefile(url + 'county/county')
+      loadSubdivisionShapefile(url + 'subdivision/subdivision')
+    }();
+
     var candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
 
@@ -369,6 +309,12 @@
   function loadOfficeManifest(categoryId) {
     var candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
+
+    map.eachLayer(function (layer) {
+      if (layer == manifest.countyLayer || layer == manifest.subdivisionLayer) {
+        map.removeLayer(layer);
+      }
+    }); // we need the map cleared, else it will accumulate
 
     var goBack = document.createElement("div");
     goBack.classList.add("candidate-box");
@@ -421,16 +367,38 @@
     }
     candidateBox.appendChild(goBack)
 
-    manifest.countyLayer = await loadCountyShapefile('http://localhost:3000/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/county/county');
+    await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
     manifest.countyLayer.addTo(map);
+
+    var candidates = stmt("select * from candidate where officeId=?", [manifest.office.id])
+    for (let candidate of candidates) {
+      var cb = document.createElement("div");
+      cb.classList.add("candidate-box");
+
+      var candidateName = document.createElement("div")
+      candidateName.className = "candidate-name"
+      candidateName.innerHTML = candidate.name
+      cb.appendChild(candidateName)
+
+      candidateBox.appendChild(cb);
+    }
   }
 
+  manifest.databaseLoad = loadDatabase();
+
   async function work() {
-    await loadDatabase();
+    await manifest.databaseLoad;
     loadElectionManifest();
   }
 
   work();
+
+  // manifest.viewCreator = async function(){
+  //   await manifest.databaseLoad;
+  //     db.exec("create table precinct_results_view as select * from precinct_results;")
+  //     // db.exec("create table municipal_results_view as select * from municipal_results;")
+  //     // db.exec("create table county_results_view as select * from county_results;")
+  //   }(); // this function will create tables out of all the views and thus dramatically speed up queries, for initial cost
 </script>
 
 </body>
