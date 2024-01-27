@@ -137,13 +137,12 @@ for worksheet in electionWorkbook.sheetnames:
 		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES('{candidateName}', '{officeElectionId}')")
 		candidateId = cursor.lastrowid
 
-		for rowIdx in range(4, worksheet.max_row):
+		for rowIdx in range(5, worksheet.max_row):
 			countyName = worksheet.cell(row=rowIdx,column=1).value + ' County'
 			precinctName = worksheet.cell(row=rowIdx,column=2).value
 			candidateVotes = worksheet.cell(row=rowIdx,column=columnIdx).value
-			cursor.execute("SELECT id FROM precincts WHERE countyName='{countyName}' AND precinctName='{precinctName}' AND electionId='electionInfoId'")
+			cursor.execute(f"SELECT id FROM precincts WHERE countyName='{countyName}' AND precinctName='{precinctName}' AND electionId='{electionInfoId}'")
 
 			for p in cursor.fetchall():
 				precinctId = p[0]
 				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES('{candidateVotes}', '{candidateId}', '{precinctId}')")
-
