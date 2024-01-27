@@ -26,4 +26,4 @@ You may then run `python3 election-converter.py <election type> <election year>`
 
 ## Contributing
 
-There is still much [errata](https://writedan.github.io/ohio-election-viewer/errata.md) in this project. Anyone who wishes to get into the weeds of sorting out which precincts belong to which subdivisions is cordially and excessively thanked.
+There is still much [errata](https://writedan.github.io/ohio-election-viewer/errata) in this project. Anyone who wishes to get into the weeds of sorting out which precincts belong to which subdivisions is cordially and excessively thanked.
