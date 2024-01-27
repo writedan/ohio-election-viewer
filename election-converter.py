@@ -66,7 +66,7 @@ electionWorkbook.close()
 
 print(f"Adding to election index: {electionName}")
 
-cursor.execute(f"INSERT INTO election_info(name, date, year) VALUES(?, ?, ?)", (electionName, electionDate, electionYear))
+cursor.execute(f"INSERT INTO election_info(name, date, year, type) VALUES(?, ?, ?, ?)", (electionName, electionDate, electionYear, electionType))
 
 # we need to get our new id
 electionInfoId = cursor.lastrowid
