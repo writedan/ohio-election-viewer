@@ -8,21 +8,6 @@ import openpyxl
 import sqlite3
 import sys
 
-# workbook = openpyxl.load_workbook(sys.argv[1])
-# conn = sqlite3.connect('elections.sqlite3')
-# cursor = conn.cursor()
-
-# contents = workbook['Contents']['A1'].value.split(', ')
-# electionInfo = contents[1].split(' Official')[0]
-# electionDate = contents[0]
-
-# print(electionInfo)
-# print(electionDate)
-
-
-# cursor.execute(f"INSERT INTO info(name, date) VALUES('{electionInfo}', '{electionDate}')")
-
-
 electionYear = int(sys.argv[1])
 electionType = sys.argv[2]
 
@@ -50,7 +35,7 @@ electionName = electionWorkbook['Contents']['A1'].value.split(', ')[1].split('\n
 
 print(f"Adding to election index: {electionName}")
 
-cursor.execute(f"INSERT INTO election_info(name, date, year) VALUES('{electionName}', '{electionDate}', '{electionYear}')")
+cursor.execute(f"INSERT INTO election_info(name, date, year) VALUES(?, ?, ?)", (electionName, electionDate, electionYear))
 
 # we need to get our new id
 electionInfoId = cursor.lastrowid
@@ -71,7 +56,7 @@ for idx in countyIndex:
 
 	print("Processing county", name)
 
-	cursor.execute(f"INSERT INTO county(name, fips, electionId) VALUES('{name}', '{fips}', '{electionInfoId}')")
+	cursor.execute(f"INSERT INTO county(name, fips, electionId) VALUES(?, ?, ?)", (name, fips, electionInfoId))
 
 	countyId = cursor.lastrowid
 
@@ -83,7 +68,7 @@ for idx in countyIndex:
 
 		print("\tProcessing municipality", mName)
 		
-		cursor.execute(f"INSERT INTO municipality(name, fips, countyId) VALUES('{mName}', '{mCode}', '{countyId}')")
+		cursor.execute(f"INSERT INTO municipality(name, fips, countyId) VALUES(?, ?, ?)", (mName, mCode, countyId))
 
 # now we can setup the precincts with their conversions
 data = precinctWorkbook['Sheet1'].values
@@ -97,15 +82,16 @@ for idx, precinct in df.iterrows():
 
 	print("Processing precinct", precinctName,"of",countyName)
 
-	cursor.execute(f"SELECT * FROM municipalities WHERE electionId='{electionInfoId}' AND countyName='{countyName}' AND municipalCode='{municipalCode}'")
+	cursor.execute(f"SELECT * FROM municipalities WHERE electionId=? AND countyName=? AND municipalCode=?", (electionInfoId, countyName, municipalCode))
 
 	for m in cursor.fetchall():
-		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES('{precinctName}', '{m[0]}')")
+		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", (precinctName, m[0]))
 
 for worksheet in electionWorkbook.sheetnames:
 	if (worksheet == 'Contents' or worksheet == 'Master'):
 		continue
-	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES ('{worksheet}', '{electionInfoId}')")
+
+	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES (?, ?)", (worksheet, electionInfoId))
 	officeCategoryId = cursor.lastrowid
 
 	print("Processing election category", worksheet)
@@ -123,7 +109,7 @@ for worksheet in electionWorkbook.sheetnames:
 			print("\tProcessing office", val)
 			# we have a new office
 			lastOffice = val
-			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES('{lastOffice}', '{officeCategoryId}')")
+			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
 			officeElectionId = cursor.lastrowid
 
 		candidateName = worksheet.cell(row=2, column=columnIdx).value
@@ -134,15 +120,15 @@ for worksheet in electionWorkbook.sheetnames:
 			print("\t\t\tWrite-in candidates are not collated. Rejected.")
 			continue
 
-		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES('{candidateName}', '{officeElectionId}')")
+		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
 		candidateId = cursor.lastrowid
 
 		for rowIdx in range(5, worksheet.max_row):
 			countyName = worksheet.cell(row=rowIdx,column=1).value + ' County'
 			precinctName = worksheet.cell(row=rowIdx,column=2).value
 			candidateVotes = worksheet.cell(row=rowIdx,column=columnIdx).value
-			cursor.execute(f"SELECT id FROM precincts WHERE countyName='{countyName}' AND precinctName='{precinctName}' AND electionId='{electionInfoId}'")
+			cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
 
 			for p in cursor.fetchall():
 				precinctId = p[0]
-				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES('{candidateVotes}', '{candidateId}', '{precinctId}')")
+				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, '?)", (candidateVotes, candidateId, precinctId))
