@@ -35,11 +35,7 @@ electionName = electionWorkbook['Contents']['A1'].value.split(', ')[1].split('\n
 
 print(f"Adding to election index: {electionName}")
 
-<<<<<<< HEAD
 cursor.execute(f"INSERT INTO election_info(name, date, year) VALUES(?, ?, ?)", (electionName, electionDate, electionYear))
-=======
-cursor.execute(f"INSERT INTO election_info(name, date, year) VALUES(?, ?, ?)", electionName, electionDate, electionYear)
->>>>>>> refs/remotes/origin/main
 
 # we need to get our new id
 electionInfoId = cursor.lastrowid
@@ -60,11 +56,7 @@ for idx in countyIndex:
 
 	print("Processing county", name)
 
-<<<<<<< HEAD
 	cursor.execute(f"INSERT INTO county(name, fips, electionId) VALUES(?, ?, ?)", (name, fips, electionInfoId))
-=======
-	cursor.execute(f"INSERT INTO county(name, fips, electionId) VALUES(?, ?, ?)", name, fips, electionInfoId)
->>>>>>> refs/remotes/origin/main
 
 	countyId = cursor.lastrowid
 
@@ -76,11 +68,7 @@ for idx in countyIndex:
 
 		print("\tProcessing municipality", mName)
 		
-<<<<<<< HEAD
 		cursor.execute(f"INSERT INTO municipality(name, fips, countyId) VALUES(?, ?, ?)", (mName, mCode, countyId))
-=======
-		cursor.execute(f"INSERT INTO municipality(name, fips, countyId) VALUES(?, ?, ?)", mName, mCode, countyId)
->>>>>>> refs/remotes/origin/main
 
 # now we can setup the precincts with their conversions
 data = precinctWorkbook['Sheet1'].values
@@ -94,27 +82,16 @@ for idx, precinct in df.iterrows():
 
 	print("Processing precinct", precinctName,"of",countyName)
 
-<<<<<<< HEAD
 	cursor.execute(f"SELECT * FROM municipalities WHERE electionId=? AND countyName=? AND municipalCode=?", (electionInfoId, countyName, municipalCode))
 
 	for m in cursor.fetchall():
 		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", (precinctName, m[0]))
-=======
-	cursor.execute(f"SELECT * FROM municipalities WHERE electionId=? AND countyName=? AND municipalCode=?", electionInfoId, countyName, municipalCode)
-
-	for m in cursor.fetchall():
-		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", precinctName, m[0])
->>>>>>> refs/remotes/origin/main
 
 for worksheet in electionWorkbook.sheetnames:
 	if (worksheet == 'Contents' or worksheet == 'Master'):
 		continue
 
-<<<<<<< HEAD
 	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES (?, ?)", (worksheet, electionInfoId))
-=======
-	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES (?, ?)", worksheet, electionInfoId)
->>>>>>> refs/remotes/origin/main
 	officeCategoryId = cursor.lastrowid
 
 	print("Processing election category", worksheet)
@@ -132,11 +109,7 @@ for worksheet in electionWorkbook.sheetnames:
 			print("\tProcessing office", val)
 			# we have a new office
 			lastOffice = val
-<<<<<<< HEAD
 			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
-=======
-			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", lastOffice, officeCategoryId)
->>>>>>> refs/remotes/origin/main
 			officeElectionId = cursor.lastrowid
 
 		candidateName = worksheet.cell(row=2, column=columnIdx).value
@@ -147,27 +120,15 @@ for worksheet in electionWorkbook.sheetnames:
 			print("\t\t\tWrite-in candidates are not collated. Rejected.")
 			continue
 
-<<<<<<< HEAD
 		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
-=======
-		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", candidateName, officeElectionId)
->>>>>>> refs/remotes/origin/main
 		candidateId = cursor.lastrowid
 
 		for rowIdx in range(5, worksheet.max_row):
 			countyName = worksheet.cell(row=rowIdx,column=1).value + ' County'
 			precinctName = worksheet.cell(row=rowIdx,column=2).value
 			candidateVotes = worksheet.cell(row=rowIdx,column=columnIdx).value
-<<<<<<< HEAD
 			cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
 
 			for p in cursor.fetchall():
 				precinctId = p[0]
-				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, '?)", (candidateVotes, candidateId, precinctId))
-=======
-			cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", countyName, precinctName, electionInfoId)
-
-			for p in cursor.fetchall():
-				precinctId = p[0]
-				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, '?)", candidateVotes, candidateId, precinctId)
->>>>>>> refs/remotes/origin/main
+				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidateId, precinctId))
