@@ -101,16 +101,36 @@ for worksheet in electionWorkbook.sheetnames:
 	# offices = {}
 	lastOffice = ''
 	officeElectionId = -1
+	columnsToReckon = []
+	candidatesToReckon = []
 
 	for columnIdx in range(9, worksheet.max_column): # 9th column idx = 'I'
 		val = worksheet.cell(row=1, column=columnIdx).value
 		if (val is not None):
+			# first, we must handle the candidates already found
+			if len(columnsToReckon) > 0:
+				print("\t\tProcessing precinct results...")
+				for rowIdx in range(5, worksheet.max_row):
+					countyName = worksheet.cell(row=rowIdx, column=1).value + ' County'
+					precinctName = worksheet.cell(row=rowIdx, column=2).value
+					cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
+
+					for idx, column in enumerate(columnsToReckon):
+						candidateVotes = worksheet.cell(row=rowIdx, column=column).value
+						for p in cursor.fetchall():
+							precinctId = p[0]
+							cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidatesToReckon[idx], precinctId))
+
 			val = val.strip().replace('\n', ' - ')
 			print("\tProcessing office", val)
 			# we have a new office
 			lastOffice = val
+			columnsToReckon = []
+			candidatesToReckon = []
 			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
 			officeElectionId = cursor.lastrowid
+
+		columnsToReckon.append(columnIdx)
 
 		candidateName = worksheet.cell(row=2, column=columnIdx).value
 		candidateName.replace('\n', ' - ')
@@ -121,14 +141,4 @@ for worksheet in electionWorkbook.sheetnames:
 			continue
 
 		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
-		candidateId = cursor.lastrowid
-
-		for rowIdx in range(5, worksheet.max_row):
-			countyName = worksheet.cell(row=rowIdx,column=1).value + ' County'
-			precinctName = worksheet.cell(row=rowIdx,column=2).value
-			candidateVotes = worksheet.cell(row=rowIdx,column=columnIdx).value
-			cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
-
-			for p in cursor.fetchall():
-				precinctId = p[0]
-				cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidateId, precinctId))
+		candidatesToReckon.append(cursor.lastrowid)
