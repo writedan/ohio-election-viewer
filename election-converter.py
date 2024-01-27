@@ -28,7 +28,7 @@ if len(sys.argv) < 3:
 electionYear = int(sys.argv[1])
 electionType = sys.argv[2]
 
-database = sqlite3.connect('backup.db')
+database = sqlite3.connect('elections.db')
 cursor = database.cursor()
 
 
@@ -95,7 +95,7 @@ for idx in countyIndex:
 	muns = df[df['COUNTYFP'] == fips]
 	for idx, m in muns.iterrows():
 		mName = m['COUSUBNAME']
-		mCode = m['COUSUBFP']
+		mCode = int(m['COUSUBFP'])
 
 		print("\tProcessing municipality", mName)
 		
@@ -108,14 +108,20 @@ df = pd.DataFrame(data, columns=columns)
 
 for idx, precinct in df.iterrows():
 	countyName = precinct['COUNTYNAME'] + ' County'
-	municipalCode = precinct['MUNICIPALFIPS']
+	municipalCode = int(precinct['MUNICIPALFIPS'])
 	precinctName = precinct['PRECINCTNAME']
 
 	print("Processing precinct", precinctName,"of",countyName)
 
 	cursor.execute(f"SELECT * FROM municipalities WHERE electionId=? AND countyName=? AND municipalCode=?", (electionInfoId, countyName, municipalCode))
 
-	for m in cursor.fetchall():
+	mRes=cursor.fetchall()
+	if len(mRes) == 0:
+		print("\tERROR!", countyName, municipalCode,"not in database!")
+		print("\t...ocurred on", precinctName)
+		print("\t...We can recover but it is best to fix this.")
+		exit()
+	for m in mRes:
 		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", (precinctName, m[0]))
 
 def processElectionWorkbook(electionWorkbook):
@@ -136,26 +142,38 @@ def processElectionWorkbook(electionWorkbook):
 		columnsToReckon = []
 		candidatesToReckon = []
 
-		for columnIdx in range(9, worksheet.max_column + 1): # 9th column idx = 'I'
+		maxColumnCount = worksheet.max_column
+
+		for columnIdx in range(9, worksheet.max_column + 2): # 9th column idx = 'I'
 			val = worksheet.cell(row=1, column=columnIdx).value
-			if (val is not None) or (columnIdx == worksheet.max_column + 1):
+			if (val is not None) or (columnIdx > maxColumnCount):
 				# first, we must handle the candidates already found
 				if len(columnsToReckon) > 0:
 					print("\t\tProcessing precinct results...")
+
+					precinctId = -1
 					for rowIdx in range(5, worksheet.max_row):
 						countyName = worksheet.cell(row=rowIdx, column=1).value + ' County'
 						precinctName = worksheet.cell(row=rowIdx, column=2).value
 						cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
+						# print(countyName, precinctName)
+						pRes = cursor.fetchall()
+						if len(pRes) == 0:
+							print("\t\t\tWARN!",countyName,precinctName,"not in database!")
+							continue
+						precinctId = pRes.pop()[0]
+
+						if len(columnsToReckon) is not len(candidatesToReckon):
+							print("\t\t\tWARN!",len(columnsToReckon),"candidates identified but only",len(candidatesToReckon),"present!")
+							print("\t\t\t...ocurred at ",countyName,precinctName)
 
 						for idx, column in enumerate(columnsToReckon):
 							candidateVotes = worksheet.cell(row=rowIdx, column=column).value
-							for p in cursor.fetchall():
-								precinctId = p[0]
-								cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidatesToReckon[idx], precinctId))
-
-				if (columnIdx == worksheet.max_column + 1):
-					break
-
+							candidateName = worksheet.cell(row=2,column=column).value
+							candidateId = candidatesToReckon[idx]
+							cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidateId, precinctId))
+								
+			if (val is not None):
 				val = val.strip().replace('\n', ' - ')
 				print("\tProcessing office", val)
 				# we have a new office
@@ -165,9 +183,10 @@ def processElectionWorkbook(electionWorkbook):
 				cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
 				officeElectionId = cursor.lastrowid
 
-			columnsToReckon.append(columnIdx)
-
 			candidateName = worksheet.cell(row=2, column=columnIdx).value
+			if candidateName is None:
+				continue
+
 			candidateName.replace('\n', ' - ')
 			print("\t\tProcessing candidate", candidateName)
 
@@ -177,8 +196,9 @@ def processElectionWorkbook(electionWorkbook):
 
 			cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
 			candidatesToReckon.append(cursor.lastrowid)
+			columnsToReckon.append(columnIdx)
 
-for electionWorkbook in electionWorkbooks:
+for idx, electionWorkbook in enumerate(electionWorkbooks):
 	print("Load:",electionWorkbook)
 	electionWorkbook = openpyxl.load_workbook(workbookUri + electionWorkbook)
 	processElectionWorkbook(electionWorkbook)
