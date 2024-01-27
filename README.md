@@ -23,3 +23,7 @@ Now with all this, the only thing missing is the election data itself. These are
 Make sure your database is equipped. It must be named `elections.db`. If you want a fresh version, the `backup.db.schema` has all the queries necessary to set it up.
 
 You may then run `python3 election-converter.py <election type> <election year>`. `Election type` refers to the different elections within one year, e.g. a general, special, primary. The prefix of your files must correspond to this. The script may take several minutes to execute, because of the breadth of data.
+
+## Contributing
+
+There is still much [errata](https://writedan.github.io/ohio-election-viewer/errata.md) in this project. Anyone who wishes to get into the weeds of sorting out which precincts belong to which subdivisions is cordially and excessively thanked.
