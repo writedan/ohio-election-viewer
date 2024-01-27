@@ -119,7 +119,7 @@ for worksheet in electionWorkbook.sheetnames:
 	for columnIdx in range(9, worksheet.max_column): # 9th column idx = 'I'
 		val = worksheet.cell(row=1, column=columnIdx).value
 		if (val is not None):
-			val = val.strip()
+			val = val.strip().replace('\n', ' - ')
 			print("\tProcessing office", val)
 			# we have a new office
 			lastOffice = val
