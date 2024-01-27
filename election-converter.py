@@ -7,6 +7,23 @@ import pandas as pd
 import openpyxl
 import sqlite3
 import sys
+import re
+import os
+
+def find_matching_files(directory_path, pattern):
+    matching_files = []
+
+    regex_pattern = re.compile(pattern)
+
+    for filename in os.listdir(directory_path):
+        if regex_pattern.match(filename):
+            matching_files.append(filename)
+
+    return matching_files
+
+if len(sys.argv) < 3:
+	print("Usage: election-converter.py <election year> <election type>")
+	exit(0)
 
 electionYear = int(sys.argv[1])
 electionType = sys.argv[2]
@@ -14,24 +31,38 @@ electionType = sys.argv[2]
 database = sqlite3.connect('backup.db')
 cursor = database.cursor()
 
-subdivisionWorkbookUri = 'elections/' + str(electionYear) + '/' + electionType + '-subdivision-codes.xlsx'
+
+workbookUri = 'elections/' + str(electionYear) + '/'
+
+subdivisionWorkbookUri = workbookUri + electionType + '-subdivision-codes.xlsx'
 print("Load:", subdivisionWorkbookUri)
 subdivisionWorkbook = openpyxl.load_workbook(subdivisionWorkbookUri)
 
-precinctWorkbookUri = 'elections/' + str(electionYear) + '/' + electionType + '-precinct-conversion.xlsx'
+precinctWorkbookUri = workbookUri + electionType + '-precinct-conversion.xlsx'
 print("Load:", precinctWorkbookUri)
 precinctWorkbook = openpyxl.load_workbook(precinctWorkbookUri)
 
-electionWorkbookUri = 'elections/' + str(electionYear) + '/' + electionType + '-election.xlsx'
-print("Load:", electionWorkbookUri)
-electionWorkbook = openpyxl.load_workbook(electionWorkbookUri)
+# electionWorkbookUri = 'elections/' + str(electionYear) + '/' + electionType + '-election.xlsx'
+# print("Load:", electionWorkbookUri)
+# electionWorkbook = openpyxl.load_workbook(electionWorkbookUri)
 
+electionWorkbooks = find_matching_files(workbookUri, r"\w+-election(?:-\d+)?\.xlsx")
+if len(electionWorkbooks) == 0:
+	print("There must be at least one election workbook.")
+	print("Election workbooks must be named as {election type}-election.xlsx or {election type}-election-{number}.xlsx")
+	exit(0)
+else:
+	print("Found",len(electionWorkbooks),"election workbooks.")
 
-
+electionWorkbook = workbookUri + electionWorkbooks[0]
+print("Load:", electionWorkbook)
+electionWorkbook = openpyxl.load_workbook(electionWorkbook)
 
 # First, we will extract the election date and fill in the election data
 electionDate = electionWorkbook['Contents']['A1'].value.split(', ')[0]
 electionName = electionWorkbook['Contents']['A1'].value.split(', ')[1].split('\n')[0]
+
+electionWorkbook.close()
 
 print(f"Adding to election index: {electionName}")
 
@@ -87,58 +118,67 @@ for idx, precinct in df.iterrows():
 	for m in cursor.fetchall():
 		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", (precinctName, m[0]))
 
-for worksheet in electionWorkbook.sheetnames:
-	if (worksheet == 'Contents' or worksheet == 'Master'):
-		continue
-
-	cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES (?, ?)", (worksheet, electionInfoId))
-	officeCategoryId = cursor.lastrowid
-
-	print("Processing election category", worksheet)
-
-	worksheet = electionWorkbook[worksheet]
-
-	# offices = {}
-	lastOffice = ''
-	officeElectionId = -1
-	columnsToReckon = []
-	candidatesToReckon = []
-
-	for columnIdx in range(9, worksheet.max_column): # 9th column idx = 'I'
-		val = worksheet.cell(row=1, column=columnIdx).value
-		if (val is not None):
-			# first, we must handle the candidates already found
-			if len(columnsToReckon) > 0:
-				print("\t\tProcessing precinct results...")
-				for rowIdx in range(5, worksheet.max_row):
-					countyName = worksheet.cell(row=rowIdx, column=1).value + ' County'
-					precinctName = worksheet.cell(row=rowIdx, column=2).value
-					cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
-
-					for idx, column in enumerate(columnsToReckon):
-						candidateVotes = worksheet.cell(row=rowIdx, column=column).value
-						for p in cursor.fetchall():
-							precinctId = p[0]
-							cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidatesToReckon[idx], precinctId))
-
-			val = val.strip().replace('\n', ' - ')
-			print("\tProcessing office", val)
-			# we have a new office
-			lastOffice = val
-			columnsToReckon = []
-			candidatesToReckon = []
-			cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
-			officeElectionId = cursor.lastrowid
-
-		columnsToReckon.append(columnIdx)
-
-		candidateName = worksheet.cell(row=2, column=columnIdx).value
-		candidateName.replace('\n', ' - ')
-		print("\t\tProcessing candidate", candidateName)
-
-		if (candidateName[-1] == '*'):
-			print("\t\t\tWrite-in candidates are not collated. Rejected.")
+def processElectionWorkbook(electionWorkbook):
+	for worksheet in electionWorkbook.sheetnames:
+		if (worksheet == 'Contents' or worksheet == 'Master'):
 			continue
 
-		cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
-		candidatesToReckon.append(cursor.lastrowid)
+		cursor.execute(f"INSERT INTO office_category(name, electionId) VALUES (?, ?)", (worksheet, electionInfoId))
+		officeCategoryId = cursor.lastrowid
+
+		print("Processing election category", worksheet)
+
+		worksheet = electionWorkbook[worksheet]
+
+		# offices = {}
+		lastOffice = ''
+		officeElectionId = -1
+		columnsToReckon = []
+		candidatesToReckon = []
+
+		for columnIdx in range(9, worksheet.max_column + 1): # 9th column idx = 'I'
+			val = worksheet.cell(row=1, column=columnIdx).value
+			if (val is not None) or (columnIdx == worksheet.max_column + 1):
+				# first, we must handle the candidates already found
+				if len(columnsToReckon) > 0:
+					print("\t\tProcessing precinct results...")
+					for rowIdx in range(5, worksheet.max_row):
+						countyName = worksheet.cell(row=rowIdx, column=1).value + ' County'
+						precinctName = worksheet.cell(row=rowIdx, column=2).value
+						cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
+
+						for idx, column in enumerate(columnsToReckon):
+							candidateVotes = worksheet.cell(row=rowIdx, column=column).value
+							for p in cursor.fetchall():
+								precinctId = p[0]
+								cursor.execute(f"INSERT INTO office_result(votes, candidateId, precinctId) VALUES(?, ?, ?)", (candidateVotes, candidatesToReckon[idx], precinctId))
+
+				if (columnIdx == worksheet.max_column + 1):
+					break
+
+				val = val.strip().replace('\n', ' - ')
+				print("\tProcessing office", val)
+				# we have a new office
+				lastOffice = val
+				columnsToReckon = []
+				candidatesToReckon = []
+				cursor.execute(f"INSERT INTO office_election(name, categoryId) VALUES(?, ?)", (lastOffice, officeCategoryId))
+				officeElectionId = cursor.lastrowid
+
+			columnsToReckon.append(columnIdx)
+
+			candidateName = worksheet.cell(row=2, column=columnIdx).value
+			candidateName.replace('\n', ' - ')
+			print("\t\tProcessing candidate", candidateName)
+
+			if (candidateName[-1] == '*'):
+				print("\t\t\tWrite-in candidates are not collated. Rejected.")
+				continue
+
+			cursor.execute(f"INSERT INTO candidate(name, officeId) VALUES(?, ?)", (candidateName, officeElectionId))
+			candidatesToReckon.append(cursor.lastrowid)
+
+for electionWorkbook in electionWorkbooks:
+	print("Load:",electionWorkbook)
+	electionWorkbook = openpyxl.load_workbook(workbookUri + electionWorkbook)
+	processElectionWorkbook(electionWorkbook)
