@@ -248,9 +248,9 @@
         await update_candidate_box(countyResults)
       })
 
-      manifest.countyLayer.on('mouseout', async function(event){
+      manifest.countyLayer.on('mouseout', function(event){
         document.getElementById('county-name').innerHTML = manifest.office.name;
-        await update_candidate_box_statewide(manifest.office.totalVotes)
+        update_candidate_box_statewide(manifest.office.totalVotes)
         event.layer.setStyle({
           fillOpacity: 0.7
         })
@@ -384,14 +384,18 @@
       manifest.candidates[candidate.id] = candidate
     }
 
-    update_candidate_box_statewide(manifest.office.totalVotes);
+    await update_candidate_box_statewide(manifest.office.totalVotes);
 
     initmap(manifest)
   }
 
   async function update_candidate_box_statewide(totalVotes) {
-    var candidateBox = document.getElementById('candidates');
-    candidateBox.innerHTML = '';
+    var candidateBox1 = document.getElementById('candidates');
+    candidateBox1.innerHTML = ''
+
+    var candidateBox = document.createElement('div')
+
+    async function internal() {
 
     var goBack = document.createElement("div");
     goBack.classList.add("candidate-box");
@@ -434,7 +438,11 @@
 
       candidateBox.appendChild(cb);
 
-    }
+    }}
+    await internal();
+
+    candidateBox1.innerHTML = ''
+      candidateBox1.appendChild(candidateBox)
   }
 
   let db;
@@ -508,11 +516,13 @@
     manifest.countyLayer.addTo(map)
   }
 
-  async function update_candidate_box(countyResults) {
+  function update_candidate_box(countyResults) {
     document.getElementById('county-name').innerHTML = countyResults[0].countyName;
 
-    var candidateBox = document.getElementById('candidates');
-    candidateBox.innerHTML = '';
+    var candidateBox1 = document.getElementById('candidates');
+    candidateBox1.innerHTML = ''
+
+    var candidateBox = document.createElement('div')
 
     var goBack = document.createElement("div");
     goBack.classList.add("candidate-box");
@@ -528,32 +538,40 @@
     }
     candidateBox.appendChild(goBack)
 
-    var totalVotes = (await queryWorker('select sum(votes) as votes from county_results_idx where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyResults[0].countyCode]))[0].votes
+    async function internal_ucb() {
+      var totalVotes = (await queryWorker('select sum(votes) as votes from county_results_idx where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyResults[0].countyCode]))[0].votes
 
-    for (let county of countyResults) {
-      var candidate = manifest.candidates[county.candidateId]
-      var cb = document.createElement("div");
-      cb.classList.add("candidate-box");
-      cb.style.borderColor = '#' + candidate.color[4];
+      for (let county of countyResults) {
+        var candidate = manifest.candidates[county.candidateId]
+        var cb = document.createElement("div");
+        cb.classList.add("candidate-box");
+        cb.style.borderColor = '#' + candidate.color[4];
 
-      var candidateName = document.createElement("div")
-      candidateName.className = "candidate-name"
-      candidateName.innerHTML = county.candidateName
-      cb.appendChild(candidateName)
+        var candidateName = document.createElement("div")
+        candidateName.className = "candidate-name"
+        candidateName.innerHTML = county.candidateName
+        cb.appendChild(candidateName)
 
-      var percentageBox = document.createElement("div")
-      percentageBox.className = 'candidate-percentage'
-      percentageBox.style.color = '#' + candidate.color[4]
-      percentageBox.innerHTML = ((county.votes / totalVotes) * 100).toFixed(2) + '%'
-      cb.appendChild(percentageBox)
+        var percentageBox = document.createElement("div")
+        percentageBox.className = 'candidate-percentage'
+        percentageBox.style.color = '#' + candidate.color[4]
+        percentageBox.innerHTML = ((county.votes / totalVotes) * 100).toFixed(2) + '%'
+        cb.appendChild(percentageBox)
 
-      var rawVotes = document.createElement('div')
-      rawVotes.className = 'candidate-raw-votes'
-      rawVotes.innerHTML = county.votes.toLocaleString(undefined)
-      cb.appendChild(rawVotes)
+        var rawVotes = document.createElement('div')
+        rawVotes.className = 'candidate-raw-votes'
+        rawVotes.innerHTML = county.votes.toLocaleString(undefined)
+        cb.appendChild(rawVotes)
 
-      candidateBox.appendChild(cb);
+        candidateBox.appendChild(cb);
+      }
+
     }
+
+    internal_ucb().then(function(){
+      candidateBox1.innerHTML = ''
+      candidateBox1.appendChild(candidateBox)
+    });
   }
 </script>
 
