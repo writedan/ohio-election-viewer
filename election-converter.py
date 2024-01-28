@@ -65,7 +65,7 @@ else:
 # electionWorkbook.close()
 
 electionDate = precinctWorkbook.sheetnames[0].split(', ')[0]
-electionName = precinctWorkbook.sheetnames[0].split(', ')[1].split('\n')[0]
+electionName = precinctWorkbook.sheetnames[0].split(', ')[1]
 
 print(f"Adding to election index: {electionName}")
 
@@ -211,6 +211,14 @@ for idx, electionWorkbook in enumerate(electionWorkbooks):
 	print("Load:",electionWorkbook)
 	electionWorkbook = openpyxl.load_workbook(workbookUri + electionWorkbook)
 	processElectionWorkbook(electionWorkbook)
+
+	if idx == 0:
+		print('Fixing election_info!')
+		firstSheet = electionWorkbook[electionWorkbook.sheetnames[0]]
+		electionDate = electionWorkbook['A1'].split(', ')[0]
+		electionName = electionWorkbook['A1'].split(', ')[1].split('\n')[0]
+		cursor.execute('update election_info set name=?, date=? where id=?', (electionName, electionDate, electionInfoId))
+
 	electionWorkbook.close()
 
 cursor.execute("drop table precincts_idx") # but dont let it linger
