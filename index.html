@@ -4,13 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ohio Election Visualizer</title>
-  <!-- Include Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <!-- Include Leaflet JavaScript -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <!-- Include Leaflet Shapefile JavaScript -->
   <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
   <script src="http://calvinmetcalf.github.io/leaflet.shapefile/leaflet.shpfile.js"></script>
+
+  <script>
+    function generateUUID() { // Public Domain/MIT
+      var d = new Date().getTime();//Timestamp
+      var d2 = ((typeof performance !== 'undefined') && performance.now && (performance.now()*1000)) || 0;//Time in microseconds since page-load or 0 if unsupported
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random() * 16;//random number between 0 and 16
+          if(d > 0){//Use timestamp until depleted
+              r = (d + r)%16 | 0;
+              d = Math.floor(d/16);
+          } else {//Use microseconds since page-load if supported
+              r = (d2 + r)%16 | 0;
+              d2 = Math.floor(d2/16);
+          }
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      });
+    }
+
+    // thanks to https://stackoverflow.com/a/8809472
+  </script>
+
+  <script src="sql.js"></script>
   <style>
     body {
     margin: 0;
@@ -80,6 +99,7 @@
     transition: color 0.3s;
     background-color: #2554a9;
     color: white;
+    border: 2px solid #2554a9;
   }
 
   .back-button:hover {
@@ -91,22 +111,6 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
   <script>
-
-        async function loadDatabase(){
-          window.SQL = await initSqlJs({
-          // Required to load the wasm binary asynchronously. Of course, you can host it wherever you want
-          // You can omit locateFile completely when running in node
-          locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.wasm`
-        });
-          await fetch('http://localhost:3000/elections.db')
-            .then(response => response.arrayBuffer())
-            .then(buffer => {
-                let db = new SQL.Database(new Uint8Array(buffer));
-                window.db = db; // this exports `db` as a global variable
-            })
-            .catch(error => {
-                console.error('Error fetching or loading the database:', error);
-            });}
     </script>
 </head>
 
@@ -122,22 +126,11 @@
 </div>
 
 <script>
-  function toTitleCase(str) {
-    return str.replace(/\w\S*/g, function (txt) {
-      return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
-    });
-  }
+  var map = L.map('map').setView([39.9612, -82.9988], 7); 
 
-    // Initialize the map
-  var map = L.map('map').setView([39.9612, -82.9988], 7); // Set initial coordinates and zoom level
-
-  // Add a tile layer (you can use other tile providers)
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map);
-
-  // Load county Shapefile data using Leaflet Shapefile
-  //var countyLayer, subdivisionLayer;
 
   async function loadCountyShapefile(url) {
     let countyLayer;
@@ -171,13 +164,9 @@
     manifest.subdivisionLayer = subdivisionLayer;
   }
 
-  // Listen for map moveend event
   map.on('zoomend', function () {
-    // Get the current bounds of the map
     var bounds = map.getBounds();
 
-    // Check if, for example, 50% of the state has come back into view
-    // You can adjust this threshold as needed
     if (checkPercentageInView(bounds) > 0.25) {
       if (map.hasLayer(manifest.subdivisionLayer)) {
         map.addLayer(manifest.countyLayer);
@@ -187,23 +176,18 @@
   });
 
   function checkPercentageInView(bounds) {
-    // Define the bounding box of the state (adjust these coordinates based on your state)
     var stateBounds = L.latLngBounds(
       L.latLng(37.7719, -85.6052), // Southwest corner
       L.latLng(41.9773, -80.5188)  // Northeast corner
     );
 
-    // Get the intersection of the state bounds and the current map bounds
     var intersection = getIntersection(bounds, stateBounds);
 
-    // Calculate the percentage of the state bounds that is in view
     var percentageInView = (intersection.getNorthEast().lat - intersection.getSouthWest().lat) / (stateBounds.getNorthEast().lat - stateBounds.getSouthWest().lat);
 
-    // You can adjust the threshold percentage as needed (e.g., 0.5 for 50%)
     return percentageInView;
   }
 
-  // Function to calculate the intersection of two bounding boxes
   function getIntersection(bounds1, bounds2) {
     var swLat = Math.max(bounds1.getSouthWest().lat, bounds2.getSouthWest().lat);
     var swLng = Math.max(bounds1.getSouthWest().lng, bounds2.getSouthWest().lng);
@@ -217,23 +201,6 @@
 
 
 <script>
-  function stmt(sqlStatement, parameters = []) {
-    const statement = db.prepare(sqlStatement);
-
-    try {
-        statement.bind(parameters);
-
-        const resultSet = [];
-        while (statement.step()) {
-            resultSet.push(statement.getAsObject());
-        }
-
-        return resultSet;
-    } finally {
-        statement.free();
-    }
-  }
-
   var manifest = {}
 
   function loadElectionManifest() {
@@ -344,12 +311,24 @@
       candidateBox.appendChild(candidate);
       candidate.onclick = function(){
         manifest.office = office;
-        displayElection(manifest);
+        displayElectionLoadingScreen(manifest);
       };
     }
   }
 
+  async function displayElectionLoadingScreen(manifest) {
+    var candidateBox = document.getElementById('candidates');
+    candidateBox.innerHTML = 'The database is still loading result data. This should only take a few seconds more.';
+    manifest.materializeViews.then(() => {
+      displayElection(manifest)
+    })
+  }
+
   async function displayElection(manifest) {
+    //await manifest.materializeViews; // we cannot display an election without the database being ready
+
+
+
     var candidateBox = document.getElementById('candidates');
     candidateBox.innerHTML = '';
 
@@ -384,21 +363,89 @@
     }
   }
 
-  manifest.databaseLoad = loadDatabase();
-
+  let db;
   async function work() {
-    await manifest.databaseLoad;
+    db = await loadDatabase();
     loadElectionManifest();
   }
 
   work();
 
-  // manifest.viewCreator = async function(){
-  //   await manifest.databaseLoad;
-  //     db.exec("create table precinct_results_view as select * from precinct_results;")
-  //     // db.exec("create table municipal_results_view as select * from municipal_results;")
-  //     // db.exec("create table county_results_view as select * from county_results;")
-  //   }(); // this function will create tables out of all the views and thus dramatically speed up queries, for initial cost
+    manifest.colors = {
+      red: ['FFBEBE', 'FF8585', 'FF5252', 'D40000', '8C0000'],
+      blue: ['B0C4FF', '739DFF', '5277FF', '2846B3', '001A66'],
+      green: ['A7FFDE', '69FFB4', '52FFA8', '00A378', '005138'],
+      purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6'],
+      yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900']
+    }
+</script>
+
+<script>
+  async function createWorker() {
+    manifest.worker = new Worker('worker.js')
+    manifest.worker.queries = {}
+    manifest.worker.onmessage = function(event) {
+      console.log("worker msg:", event.data)
+      if (event.data.state) {
+        if (event.data.state == 'connected') {
+          resolvePromise();
+        }
+      } else if (event.data.result) {
+        queryResolved(event.data)
+      }
+    }
+
+    manifest.worker.postMessage({action:'init'})
+
+    return new Promise((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject
+
+      manifest.worker.onerror = rejectPromise
+      manifest.worker.onmessageerror = rejectPromise
+    })
+  }
+
+  manifest.workerCreator = createWorker();
+
+  async function queryResolved(data) {
+    manifest.worker.queries[data.id].promise.resolve(data.result)
+  }
+
+  async function queryWorker(query, params=[]) {
+    await manifest.workerCreator;
+    var uuid = generateUUID();
+    manifest.worker.queries[uuid] = {}
+
+    var p = new Promise((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject
+    });
+
+    p.resolve = resolvePromise;
+
+    manifest.worker.queries[uuid].promise = p
+
+    manifest.worker.postMessage({action:'query', query:query, params:params, id:uuid})
+    return p
+  }
+
+  async function materializeViews() {
+    return new Promise((resolve, reject) => {
+      let promises = [];
+
+      promises.push(queryWorker('create table municipal_results_idx as select * from municipal_results'))
+      promises.push(queryWorker('create table state_results_idx as select * from state_results'))
+
+      Promise.all(promises).then(() => {
+        resolve();
+      }).catch(error => {
+        reject(error)
+      })
+    })
+  }
+
+  manifest.materializeViews = materializeViews();
 </script>
 
 </body>
