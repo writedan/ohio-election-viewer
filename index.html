@@ -51,7 +51,7 @@
   }
 
   .candidate-box {
-    border: 1px solid #ccc;
+    border: 2px solid #ccc;
     margin-bottom: 10px;
     padding: 10px;
     background-color: #f9f9f9;
@@ -204,6 +204,7 @@
   var manifest = {}
 
   function loadElectionManifest() {
+    document.getElementById('county-name').innerHTML = 'Ohio Election Visualizer';
     var elections = stmt("select * from election_info")
     var candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
@@ -241,6 +242,8 @@
     var candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
 
+    document.getElementById('county-name').innerHTML = manifest.election.name;
+
     var goBack = document.createElement("div");
     goBack.classList.add("candidate-box");
     goBack.classList.add("back-button");
@@ -276,6 +279,8 @@
   function loadOfficeManifest(categoryId) {
     var candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
+
+    document.getElementById('county-name').innerHTML = manifest.category.name;
 
     map.eachLayer(function (layer) {
       if (layer == manifest.countyLayer || layer == manifest.subdivisionLayer) {
@@ -317,11 +322,28 @@
   }
 
   async function displayElectionLoadingScreen(manifest) {
+    document.getElementById('county-name').innerHTML = manifest.office.name;
     var candidateBox = document.getElementById('candidates');
     candidateBox.innerHTML = 'The database is still loading result data. This should only take a few seconds more.';
     manifest.materializeViews.then(() => {
       displayElection(manifest)
     })
+  }
+
+  function candidateColor(name, availableColors) {
+    if ((name.includes('(R)') || name == 'No') && availableColors.red) {
+      return 'red'
+    }
+
+    if (name.includes('(D)') && availableColors.blue) {
+      return 'blue'
+    }
+
+    if (name == 'Yes' && availableColors.green) {
+      return 'green'
+    }
+
+    return Object.keys(availableColors).pop()
   }
 
   async function displayElection(manifest) {
@@ -349,15 +371,41 @@
     await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
     manifest.countyLayer.addTo(map);
 
-    var candidates = stmt("select * from candidate where officeId=?", [manifest.office.id])
+    var availableColors = {}
+    Object.assign(availableColors, manifest.colors)
+    console.log(availableColors)
+
+    let totalVotes = (await queryWorker('select sum(votes) as votes from state_results_idx where officeId=?', [manifest.office.id]))[0].votes
+
+    var candidates = await queryWorker("select candidateName as name, candidateId as id, votes from state_results_idx where officeId=? ORDER BY votes DESC", [manifest.office.id])
     for (let candidate of candidates) {
+      console.log(availableColors)
+      let color = availableColors[candidateColor(candidate.name, availableColors)]
+      delete availableColors[candidateColor(candidate.name, availableColors)];
+      candidate.color = '#' + color[4];
+
       var cb = document.createElement("div");
       cb.classList.add("candidate-box");
+      cb.style.borderColor = candidate.color;
 
       var candidateName = document.createElement("div")
       candidateName.className = "candidate-name"
       candidateName.innerHTML = candidate.name
       cb.appendChild(candidateName)
+
+      let candidateRow = candidate
+      console.log(candidateRow)
+
+      var percentageBox = document.createElement("div")
+      percentageBox.className = 'candidate-percentage'
+      percentageBox.style.color = '#' + color[4]
+      percentageBox.innerHTML = ((candidateRow.votes / totalVotes) * 100).toFixed(2) + '%'
+      cb.appendChild(percentageBox)
+
+      var rawVotes = document.createElement('div')
+      rawVotes.className = 'candidate-raw-votes'
+      rawVotes.innerHTML = candidateRow.votes.toLocaleString(undefined)
+      cb.appendChild(rawVotes)
 
       candidateBox.appendChild(cb);
     }
@@ -385,7 +433,6 @@
     manifest.worker = new Worker('worker.js')
     manifest.worker.queries = {}
     manifest.worker.onmessage = function(event) {
-      console.log("worker msg:", event.data)
       if (event.data.state) {
         if (event.data.state == 'connected') {
           resolvePromise();
