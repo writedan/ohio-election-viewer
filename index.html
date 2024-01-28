@@ -37,12 +37,12 @@
   }
 
   #map {
-    width: 75%;
+    width: 66%;
     height: 100vh;
   }
 
   #info-box {
-    width: 25%;
+    width: 33%;
     height: 100vh;
     box-sizing: border-box;
     padding: 20px;
@@ -237,6 +237,7 @@
       var url = 'http://localhost:3000/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/'
       loadCountyShapefile(url + 'county/county')
       loadSubdivisionShapefile(url + 'subdivision/subdivision')
+      manifest.filterCounties = []
     }();
 
     var candidateBox = document.getElementById("candidates");
@@ -367,7 +368,6 @@
 
     var availableColors = {}
     Object.assign(availableColors, manifest.colors)
-    console.log(availableColors)
 
     let totalVotes = (await queryWorker('select sum(votes) as votes from state_results_idx where officeId=?', [manifest.office.id]))[0].votes
 
@@ -375,7 +375,6 @@
 
     manifest.candidates = {}
     for (let candidate of candidates) {
-      console.log(availableColors)
       let color = availableColors[candidateColor(candidate.name, availableColors)]
       delete availableColors[candidateColor(candidate.name, availableColors)];
       candidate.color = color;
@@ -430,6 +429,11 @@
   async function initmap(manifest) {
     await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
 
+    while (manifest.filterCounties.length) {
+      ///manifest.countyLayer.addLayer(manifest.filterCounties.pop())
+      manifest.filterCounties.pop().addTo(manifest.countyLayer)
+    }
+
     async function update_counties() {
       return new Promise((resolve, reject) => {
         const iterator = manifest.countyLayer.getLayers()[Symbol.iterator]();
@@ -443,16 +447,18 @@
 
           var countyCode = county.feature.properties.FIPS_COUNT - 39000
           var countyResults = (await queryWorker('select * from county_results_idx where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyCode]))
-          if (countyResults.votes == 0) {
-            console.log("NO MATCHES for", countyResults)
+          if (countyResults.length == 0) {
+            manifest.countyLayer.removeLayer(county)
+            manifest.filterCounties.push(county)
+          } else {
+            var candidate = manifest.candidates[countyResults[0].candidateId]
+            county.setStyle({
+              fillColor: '#' + candidate.color[2],
+              weight: 1,
+              color: 'black',
+              fillOpacity: 0.7
+            });
           }
-          var candidate = manifest.candidates[countyResults[0].candidateId]
-          county.setStyle({
-            fillColor: '#' + candidate.color[2],
-            weight: 1,
-            color: 'black',
-            fillOpacity: 0.7
-          });
 
           await update_next_county();
         }
