@@ -54,15 +54,18 @@ if len(electionWorkbooks) == 0:
 else:
 	print("Found",len(electionWorkbooks),"election workbooks.")
 
-electionWorkbook = workbookUri + electionWorkbooks[0]
-print("Load:", electionWorkbook)
-electionWorkbook = openpyxl.load_workbook(electionWorkbook)
+# electionWorkbook = workbookUri + electionWorkbooks[0]
+# print("Load:", electionWorkbook)
+# electionWorkbook = openpyxl.load_workbook(electionWorkbook)
 
-# First, we will extract the election date and fill in the election data
-electionDate = electionWorkbook['Contents']['A1'].value.split(', ')[0]
-electionName = electionWorkbook['Contents']['A1'].value.split(', ')[1].split('\n')[0]
+# # First, we will extract the election date and fill in the election data
+# electionDate = electionWorkbook['Contents']['A1'].value.split(', ')[0]
+# electionName = electionWorkbook['Contents']['A1'].value.split(', ')[1].split('\n')[0]
 
-electionWorkbook.close()
+# electionWorkbook.close()
+
+electionDate = precinctWorkbook.sheetnames[0].split(', ')[0]
+electionName = precinctWorkbook.sheetnames[0].split(', ')[1].split('\n')[0]
 
 print(f"Adding to election index: {electionName}")
 
@@ -73,7 +76,7 @@ electionInfoId = cursor.lastrowid
 
 
 # Now we can begin adding counties and municipalities
-data = subdivisionWorkbook['Sheet1'].values
+data = subdivisionWorkbook[subdivisionWorkbook.sheetnames[0]].values
 columns = next(data) # isolate the first row as columns
 df = pd.DataFrame(data, columns=columns)
 countyIndex = {}
@@ -102,7 +105,7 @@ for idx in countyIndex:
 		cursor.execute(f"INSERT INTO municipality(name, fips, countyId) VALUES(?, ?, ?)", (mName, mCode, countyId))
 
 # now we can setup the precincts with their conversions
-data = precinctWorkbook['Sheet1'].values
+data = precinctWorkbook[precinctWorkbook.sheetnames[0]].values
 columns = next(data)
 df = pd.DataFrame(data, columns=columns)
 
@@ -123,6 +126,9 @@ for idx, precinct in df.iterrows():
 		exit()
 	for m in mRes:
 		cursor.execute(f"INSERT INTO precinct(name, municipalId) VALUES(?, ?)", (precinctName, m[0]))
+
+cursor.execute("create table precincts_idx as select * from precincts")
+		# this will dramatically speed up the insertation process
 
 def processElectionWorkbook(electionWorkbook):
 	for worksheet in electionWorkbook.sheetnames:
@@ -155,7 +161,7 @@ def processElectionWorkbook(electionWorkbook):
 					for rowIdx in range(5, worksheet.max_row):
 						countyName = worksheet.cell(row=rowIdx, column=1).value + ' County'
 						precinctName = worksheet.cell(row=rowIdx, column=2).value
-						cursor.execute(f"SELECT id FROM precincts WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
+						cursor.execute(f"SELECT id FROM precincts_idx WHERE countyName=? AND precinctName=? AND electionId=?", (countyName, precinctName, electionInfoId))
 						# print(countyName, precinctName)
 						pRes = cursor.fetchall()
 						if len(pRes) == 0:
@@ -166,6 +172,9 @@ def processElectionWorkbook(electionWorkbook):
 						if len(columnsToReckon) is not len(candidatesToReckon):
 							print("\t\t\tWARN!",len(columnsToReckon),"candidates identified but only",len(candidatesToReckon),"present!")
 							print("\t\t\t...ocurred at ",countyName,precinctName)
+
+						if all(worksheet.cell(row=rowIdx, column=column).value == 0 for column in columnsToReckon):
+							continue
 
 						for idx, column in enumerate(columnsToReckon):
 							candidateVotes = worksheet.cell(row=rowIdx, column=column).value
@@ -202,3 +211,6 @@ for idx, electionWorkbook in enumerate(electionWorkbooks):
 	print("Load:",electionWorkbook)
 	electionWorkbook = openpyxl.load_workbook(workbookUri + electionWorkbook)
 	processElectionWorkbook(electionWorkbook)
+	electionWorkbook.close()
+
+cursor.execute("drop table precincts_idx") # but dont let it linger

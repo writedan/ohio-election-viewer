@@ -9,16 +9,21 @@ CREATE TABLE candidate(id integer primary key autoincrement, name text, officeId
 CREATE TABLE office_result(id integer primary key autoincrement, votes integer, candidateId integer, precinctId integer, foreign key (candidateId) references candidate(id), foreign key (precinctId) references precinct(id));
 CREATE VIEW state_results as select r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName from county_results r group by r.candidateId
 /* state_results(officeId,votes,candidateId,candidateName) */
+/* state_results(officeId,votes,candidateId,candidateName) */
 /* state_results(officeId,votes,candidateId,candidateName) */;
 CREATE VIEW municipalities as select m.id, m.name as municipalName, m.fips as municipalCode, c.name as countyName, c.fips as countyCode, c.electionId from municipality m join county c on m.countyId = c.id
+/* municipalities(id,municipalName,municipalCode,countyName,countyCode,electionId) */
 /* municipalities(id,municipalName,municipalCode,countyName,countyCode,electionId) */
 /* municipalities(id,municipalName,municipalCode,countyName,countyCode,electionId) */;
 CREATE VIEW precincts as select p.id, p.name as precinctName, m.municipalName, m.municipalCode, m.countyName, m.countyCode, m.electionId from precinct p join municipalities m on p.municipalId = m.id
 /* precincts(id,precinctName,municipalName,municipalCode,countyName,countyCode,electionId) */
+/* precincts(id,precinctName,municipalName,municipalCode,countyName,countyCode,electionId) */
 /* precincts(id,precinctName,municipalName,municipalCode,countyName,countyCode,electionId) */;
 CREATE VIEW municipal_results as select m.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, m.name as municipalName, m.fips as municipalCode, m.countyId from precinct_results r join municipality m on r.municipalId = m.id group by r.candidateId, m.id
+/* municipal_results(id,officeId,votes,candidateId,candidateName,municipalName,municipalCode,countyId) */
 /* municipal_results(id,officeId,votes,candidateId,candidateName,municipalName,municipalCode,countyId) */;
 CREATE VIEW county_results as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName, c.fips as countyCode from municipal_results r join county c on r.countyId = c.id group by r.candidateId, c.id
+/* county_results(id,officeId,votes,candidateId,candidateName,countyName,countyCode) */
 /* county_results(id,officeId,votes,candidateId,candidateName,countyName,countyCode) */;
-CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.name as precinctName, p.municipalId from office_result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id
-/* precinct_results(id,officeId,votes,candidateId,candidateName,precinctName,municipalId) */;
+CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.id as precinctId, p.name as precinctName, p.municipalId from office_result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id
+/* precinct_results(id,officeId,votes,candidateId,candidateName,precinctId,precinctName,municipalId) */;
