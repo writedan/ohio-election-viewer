@@ -343,7 +343,8 @@
       return 'green'
     }
 
-    return Object.keys(availableColors).pop()
+    let keys = Object.keys(availableColors)
+    return keys[Math.floor(Math.random() * keys.length)]
   }
 
   async function displayElection(manifest) {
