@@ -238,7 +238,7 @@
       await loadCountyShapefile(url + 'county/county')
       await loadSubdivisionShapefile(url + 'subdivision/subdivision')
       manifest.filterCounties = []
-      manifest.countyLayer.on('mouseover', async function(event){
+      manifest.countyMouseover = async function(event){
         event.layer.setStyle({
           fillOpacity: 0.9
         })
@@ -246,7 +246,7 @@
         var countyCode = event.layer.feature.properties.FIPS_COUNT - 39000
         var countyResults = (await queryWorker('select * from county_results_idx where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyCode]));
         await update_candidate_box(countyResults)
-      })
+      };
 
       manifest.countyLayer.on('mouseout', function(event){
         document.getElementById('county-name').innerHTML = manifest.office.name;
@@ -391,7 +391,6 @@
 
   async function update_candidate_box_statewide(totalVotes) {
     var candidateBox1 = document.getElementById('candidates');
-    candidateBox1.innerHTML = ''
 
     var candidateBox = document.createElement('div')
 
@@ -497,6 +496,11 @@
               color: 'black',
               fillOpacity: 0.7
             });
+
+            county.on('mouseover', function(event){
+              event.layer = county
+              manifest.countyMouseover(event)
+            })
           }
 
           await update_next_county();
@@ -520,7 +524,6 @@
     document.getElementById('county-name').innerHTML = countyResults[0].countyName;
 
     var candidateBox1 = document.getElementById('candidates');
-    candidateBox1.innerHTML = ''
 
     var candidateBox = document.createElement('div')
 
