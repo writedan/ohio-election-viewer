@@ -238,6 +238,7 @@
       await loadCountyShapefile(url + 'county/county')
       await loadSubdivisionShapefile(url + 'subdivision/subdivision')
       manifest.filterCounties = []
+      manifest.filterSubs = []
       manifest.countyMouseover = async function(event){
         event.layer.setStyle({
           fillOpacity: 0.9
@@ -406,7 +407,7 @@
     goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
     goBack.appendChild(goBackN)
     goBack.onclick = function(){
-      loadOfficeManifest(manifest.category.id)
+      loadOfficeManifest(manifest.category.id);
     }
     candidateBox.appendChild(goBack)
 
@@ -501,6 +502,15 @@
               event.layer = county
               manifest.countyMouseover(event)
             })
+
+            county.on('click', async function(event){
+              var countyCode = county.feature.properties.FIPS_COUNT - 39000;
+              var totalVotes = (await queryWorker('select sum(votes) as votes from county_results_idx where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].votes
+              var countyId = (await queryWorker('select id from county_results_idx where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].id
+              var subdivisionResults = await queryWorker('select * from municipal_results_idx where countyId=? and officeId=?', [countyId, manifest.office.id])
+              map.fitBounds(county.getBounds())
+              await init_county_view(totalVotes, countyCode, subdivisionResults)
+            })
           }
 
           await update_next_county();
@@ -518,6 +528,24 @@
     })*/
 
     manifest.countyLayer.addTo(map)
+  }
+
+  async function init_county_view(totalVotes, countyCode, subdivisionResults) {
+    map.removeLayer(manifest.countyLayer)
+    manifest.subdivisionLayer.addTo(map);
+
+    console.log(manifest.filterSubs.length,"filtered previously")
+
+    while (manifest.filterSubs.length) {
+      manifest.filterSubs.pop().addTo(manifest.subdivisionLayer)
+    }
+
+    manifest.subdivisionLayer.eachLayer(async function(subdiv){
+      if (subdiv.feature.properties.COUNTYFP != countyCode) {
+        manifest.subdivisionLayer.removeLayer(subdiv);
+        manifest.filterSubs.push(subdiv)
+      }
+    })
   }
 
   function update_candidate_box(countyResults) {
