@@ -324,7 +324,7 @@
   async function displayElectionLoadingScreen(manifest) {
     document.getElementById('county-name').innerHTML = manifest.office.name;
     var candidateBox = document.getElementById('candidates');
-    candidateBox.innerHTML = 'The database is still loading result data. This should only take a few seconds more.';
+    candidateBox.innerHTML = 'The database is still loading result data. This should only take no more than a minute.';
     manifest.materializeViews.then(() => {
       displayElection(manifest)
     })
@@ -348,10 +348,6 @@
   }
 
   async function displayElection(manifest) {
-    //await manifest.materializeViews; // we cannot display an election without the database being ready
-
-
-
     var candidateBox = document.getElementById('candidates');
     candidateBox.innerHTML = '';
 
@@ -369,9 +365,6 @@
     }
     candidateBox.appendChild(goBack)
 
-    await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
-    manifest.countyLayer.addTo(map);
-
     var availableColors = {}
     Object.assign(availableColors, manifest.colors)
     console.log(availableColors)
@@ -379,37 +372,40 @@
     let totalVotes = (await queryWorker('select sum(votes) as votes from state_results_idx where officeId=?', [manifest.office.id]))[0].votes
 
     var candidates = await queryWorker("select candidateName as name, candidateId as id, votes from state_results_idx where officeId=? ORDER BY votes DESC", [manifest.office.id])
+
+    manifest.candidates = {}
     for (let candidate of candidates) {
       console.log(availableColors)
       let color = availableColors[candidateColor(candidate.name, availableColors)]
       delete availableColors[candidateColor(candidate.name, availableColors)];
-      candidate.color = '#' + color[4];
+      candidate.color = color;
 
       var cb = document.createElement("div");
       cb.classList.add("candidate-box");
-      cb.style.borderColor = candidate.color;
+      cb.style.borderColor = '#' + candidate.color[4];
 
       var candidateName = document.createElement("div")
       candidateName.className = "candidate-name"
       candidateName.innerHTML = candidate.name
       cb.appendChild(candidateName)
 
-      let candidateRow = candidate
-      console.log(candidateRow)
-
       var percentageBox = document.createElement("div")
       percentageBox.className = 'candidate-percentage'
-      percentageBox.style.color = '#' + color[4]
-      percentageBox.innerHTML = ((candidateRow.votes / totalVotes) * 100).toFixed(2) + '%'
+      percentageBox.style.color = '#' + candidate.color[4]
+      percentageBox.innerHTML = ((candidate.votes / totalVotes) * 100).toFixed(2) + '%'
       cb.appendChild(percentageBox)
 
       var rawVotes = document.createElement('div')
       rawVotes.className = 'candidate-raw-votes'
-      rawVotes.innerHTML = candidateRow.votes.toLocaleString(undefined)
+      rawVotes.innerHTML = candidate.votes.toLocaleString(undefined)
       cb.appendChild(rawVotes)
 
       candidateBox.appendChild(cb);
+
+      manifest.candidates[candidate.id] = candidate
     }
+
+    initmap(manifest)
   }
 
   let db;
@@ -430,10 +426,53 @@
 </script>
 
 <script>
+  // for coloring the map and related purposes
+  async function initmap(manifest) {
+    await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
+
+    async function update_counties() {
+      return new Promise((resolve, reject) => {
+        const iterator = manifest.countyLayer.getLayers()[Symbol.iterator]();
+
+        async function update_next_county() {
+          const {value: county, done} = iterator.next();
+          if (done) {
+            resolve();
+            return;
+          }
+
+          var countyCode = county.feature.properties.FIPS_COUNT - 39000
+          var countyResults = (await queryWorker('select * from county_results_idx where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyCode]))
+          if (countyResults.votes == 0) {
+            console.log("NO MATCHES for", countyResults)
+          }
+          var candidate = manifest.candidates[countyResults[0].candidateId]
+          county.setStyle({
+            fillColor: '#' + candidate.color[2],
+            weight: 1,
+            color: 'black',
+            fillOpacity: 0.7
+          });
+
+          await update_next_county();
+        }
+
+        update_next_county();
+      });
+    }
+
+    await update_counties();
+
+    manifest.countyLayer.addTo(map)
+  }
+</script>
+
+<script>
   async function createWorker() {
     manifest.worker = new Worker('worker.js')
     manifest.worker.queries = {}
     manifest.worker.onmessage = function(event) {
+      //console.log('extern worker message:',event.data)
       if (event.data.state) {
         if (event.data.state == 'connected') {
           resolvePromise();
@@ -482,8 +521,17 @@
     return new Promise((resolve, reject) => {
       let promises = [];
 
-      promises.push(queryWorker('create table municipal_results_idx as select * from municipal_results'))
-      promises.push(queryWorker('create table state_results_idx as select * from state_results'))
+      // promises.push(queryWorker('create table municipal_results_idx as select * from municipal_results'))
+      // promises.push(queryWorker('create table county_results_idx as select * from county_results'))
+      // promises.push(queryWorker('create table state_results_idx as select * from state_results'))
+
+      // instead of using the pre-built views, we will build each from scratch
+      promises.push(queryWorker('CREATE TABLE municipal_results_idx as select m.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, m.name as municipalName, m.fips as municipalCode, m.countyId from precinct_results r inner join municipality m on r.municipalId = m.id group by r.candidateId, m.id'))
+      promises.push(queryWorker('create index mr_idx on municipal_results_idx(id, officeId, votes, candidateId, candidateName, municipalName, municipalCode)'))
+      promises.push(queryWorker('CREATE TABLE county_results_idx as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName, c.fips as countyCode from municipal_results_idx r inner join county c on r.countyId = c.id group by r.candidateId, c.id'))
+      promises.push(queryWorker('create index cr_idx on county_results_idx(id, officeId, votes, candidateId, candidateName, countyName, countyCode)'))
+      promises.push(queryWorker('CREATE TABLE state_results_idx as select r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName from county_results_idx r group by r.candidateId'))
+      promises.push(queryWorker('create index sr_idx on state_results_idx(officeId, votes, candidateId, candidateName)'))
 
       Promise.all(promises).then(() => {
         resolve();
