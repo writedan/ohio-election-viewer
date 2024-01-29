@@ -1,5 +1,4 @@
 CREATE TABLE election_info(id integer primary key autoincrement, name text, date text, year integer, type text);
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE county(id integer primary key autoincrement, name text, fips text, electionId integer, foreign key (electionId) references election_info(id));
 CREATE TABLE municipality(id integer primary key autoincrement, name text, fips text, countyId integer, foreign key (countyId) references county(id));
 CREATE TABLE precinct(id integer primary key autoincrement, name text, municipalId integer, foreign key (municipalId) references municipality(id));
