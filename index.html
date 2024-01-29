@@ -507,9 +507,8 @@
               var countyCode = county.feature.properties.FIPS_COUNT - 39000;
               var totalVotes = (await queryWorker('select sum(votes) as votes from county_results_idx where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].votes
               var countyId = (await queryWorker('select id from county_results_idx where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].id
-              var subdivisionResults = await queryWorker('select * from municipal_results_idx where countyId=? and officeId=?', [countyId, manifest.office.id])
               map.fitBounds(county.getBounds())
-              await init_county_view(totalVotes, countyCode, subdivisionResults)
+              await init_county_view(totalVotes, countyCode, countyId)
             })
           }
 
@@ -530,22 +529,78 @@
     manifest.countyLayer.addTo(map)
   }
 
-  async function init_county_view(totalVotes, countyCode, subdivisionResults) {
+  async function init_county_view(totalVotes, countyCode, countyId) {
     map.removeLayer(manifest.countyLayer)
-    manifest.subdivisionLayer.addTo(map);
 
-    console.log(manifest.filterSubs.length,"filtered previously")
+    console.log('Restoring',manifest.filterSubs.length,'subdivisions')
 
     while (manifest.filterSubs.length) {
       manifest.filterSubs.pop().addTo(manifest.subdivisionLayer)
     }
 
-    manifest.subdivisionLayer.eachLayer(async function(subdiv){
+    /*manifest.subdivisionLayer.eachLayer(async function(subdiv){
       if (subdiv.feature.properties.COUNTYFP != countyCode) {
         manifest.subdivisionLayer.removeLayer(subdiv);
         manifest.filterSubs.push(subdiv)
+      } else {
+        var municipalCode = Number(subdiv.feature.properties.COUSUBFP);
+        var subdivResults = await queryWorker('select * from municipal_results_idx where officeId=? and municipalCode=?', [manifest.office.id, municipalCode])
+        if (subdivResults.length == 0) {
+          console.log(municipalCode, 'NO ELECTION DATA FOUND', subdiv.feature.properties)
+          subdiv.setStyle({
+            fillColor: 'black'
+          })
+        }
       }
-    })
+    });*/
+
+    async function update_subdivs() {
+      return new Promise((resolve, reject) => {
+        const iterator = manifest.subdivisionLayer.getLayers()[Symbol.iterator]();
+
+        async function update_next_subdiv() {
+          const {value: subdiv, done} = iterator.next();
+          if (done) {
+            resolve();
+            return;
+          }
+
+          if (subdiv.feature.properties.COUNTYFP != countyCode) {
+            manifest.subdivisionLayer.removeLayer(subdiv);
+            manifest.filterSubs.push(subdiv);
+            await update_next_subdiv();
+            return;
+          }
+
+          var municipalCode = Number(subdiv.feature.properties.COUSUBFP)
+          var subdivResults = await queryWorker('select * from municipal_results_idx where officeId=? and municipalCode=? ORDER BY votes desc', [manifest.office.id, municipalCode])
+          if (subdivResults.length == 0) {
+            console.log(municipalCode, subdiv.feature.properties.NAMELSAD, "NO ELECTION DATA", subdiv.feature.properties)
+            manifest.subdivisionLayer.removeLayer(subdiv);
+            manifest.filterSubs.push(subdiv);
+            await update_next_subdiv();
+            return;
+          }
+
+
+          var winner = manifest.candidates[subdivResults[0].candidateId];
+          subdiv.setStyle({
+            fillColor: '#' + winner.color[2],
+            weight: 1,
+            color: 'black',
+            fillOpacity: 0.7
+          })
+
+
+          await update_next_subdiv();
+        }
+
+        update_next_subdiv();
+      })
+    }
+
+    await update_subdivs();
+    manifest.subdivisionLayer.addTo(map);
   }
 
   function update_candidate_box(countyResults) {
