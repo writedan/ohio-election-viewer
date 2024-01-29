@@ -6,7 +6,7 @@ async function loadDatabase(){
     locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.wasm`
   });
     
-  await fetch('http://localhost:3000/elections.db')
+  await fetch('https://writedan.github.io/ohio-election-visualizer/elections.db')
     .then(response => response.arrayBuffer())
     .then(buffer => {
       db = new SQL.Database(new Uint8Array(buffer));
