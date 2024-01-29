@@ -256,6 +256,27 @@
           fillOpacity: 0.7
         })
       })
+
+
+      manifest.subdivisionLayer.on('mouseout', async function(event){
+        let county = (await queryWorker('select *, sum(votes) as totalVotes from county_results_idx where id=? and officeId=?', [manifest.countyId, manifest.office.id]))[0]
+        document.getElementById('county-name').innerHTML = county.countyName;
+        upadte_candidate_box_countywide(county.totalVotes)
+        event.layer.setStyle({
+          fillOpacity: 0.7
+        })
+      })
+
+
+      manifest.subdivMouseover = async function(event, municipalCode) {
+        event.layer.setStyle({
+          fillOpacity: 0.9
+        });
+
+        var subdivResults = (await queryWorker('select * from municipal_results_idx where officeId=? and municipalCode=? order by votes desc', [manifest.office.id, municipalCode]))
+        manifest.countyId = subdivResults[0].countyId;
+        await update_candidate_box_subdiv(subdivResults)
+      }
     }();
 
     var candidateBox = document.getElementById("candidates");
@@ -343,7 +364,7 @@
   async function displayElectionLoadingScreen(manifest) {
     document.getElementById('county-name').innerHTML = manifest.office.name;
     var candidateBox = document.getElementById('candidates');
-    candidateBox.innerHTML = 'The database is still loading result data. This should only take no more than a minute.';
+    candidateBox.innerHTML = 'The database is still loading result data. This should only take a few more seconds.';
     manifest.materializeViews.then(() => {
       displayElection(manifest)
     })
@@ -388,6 +409,62 @@
     await update_candidate_box_statewide(manifest.office.totalVotes);
 
     initmap(manifest)
+  }
+
+  async function upadte_candidate_box_countywide(totalVotes) {
+    var candidateBox1 = document.getElementById('candidates');
+
+    var candidateBox = document.createElement('div')
+
+    async function internal() {
+
+      var goBack = document.createElement("div");
+      goBack.classList.add("candidate-box");
+      goBack.classList.add("back-button");
+     // goBack.style.backgroundColor='grey';
+
+      var goBackN = document.createElement("div")
+      goBackN.className = "candidate-name"
+      goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
+      goBack.appendChild(goBackN)
+      goBack.onclick = function(){
+        loadOfficeManifest(manifest.category.id);
+      }
+      candidateBox.appendChild(goBack)
+
+      var candidates = await queryWorker('select candidateName as name, candidateId as id, votes from county_results_idx where officeId=? and id=? ORDER BY votes desc', [manifest.office.id, manifest.countyId])
+
+      for (let candidateIdx of candidates) {
+        let candidate = manifest.candidates[candidateIdx.id]
+
+        var cb = document.createElement("div");
+        cb.classList.add("candidate-box");
+        cb.style.borderColor = '#' + candidate.color[4];
+
+        var candidateName = document.createElement("div")
+        candidateName.className = "candidate-name"
+        candidateName.innerHTML = candidate.name
+        cb.appendChild(candidateName)
+
+        var percentageBox = document.createElement("div")
+        percentageBox.className = 'candidate-percentage'
+        percentageBox.style.color = '#' + candidate.color[4]
+        percentageBox.innerHTML = ((candidateIdx.votes / totalVotes) * 100).toFixed(2) + '%'
+        cb.appendChild(percentageBox)
+
+        var rawVotes = document.createElement('div')
+        rawVotes.className = 'candidate-raw-votes'
+        rawVotes.innerHTML = candidateIdx.votes.toLocaleString(undefined)
+        cb.appendChild(rawVotes)
+
+        candidateBox.appendChild(cb);
+      }
+    }
+
+    await internal();
+
+    candidateBox1.innerHTML = ''
+    candidateBox1.appendChild(candidateBox)
   }
 
   async function update_candidate_box_statewide(totalVotes) {
@@ -591,6 +668,11 @@
             fillOpacity: 0.7
           })
 
+          subdiv.on('mouseover', function(event){
+            event.layer = subdiv;
+            manifest.subdivMouseover(event, municipalCode)
+          })
+
 
           await update_next_subdiv();
         }
@@ -601,6 +683,64 @@
 
     await update_subdivs();
     manifest.subdivisionLayer.addTo(map);
+  }
+
+
+
+  function update_candidate_box_subdiv(subdivResults) {
+    document.getElementById('county-name').innerHTML = subdivResults[0].municipalName;
+
+    var candidateBox1 = document.getElementById('candidates');
+
+    var candidateBox = document.createElement('div')
+
+    var goBack = document.createElement("div");
+    goBack.classList.add("candidate-box");
+    goBack.classList.add("back-button");
+   // goBack.style.backgroundColor='grey';
+
+    var goBackN = document.createElement("div")
+    goBackN.className = "candidate-name"
+    goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
+    goBack.appendChild(goBackN)
+    goBack.onclick = function(){
+      loadOfficeManifest(manifest.category.id)
+    }
+    candidateBox.appendChild(goBack)
+
+    async function internal() {
+      var totalVotes = (await queryWorker('select sum(votes) as votes from municipal_results_idx where officeId=? and municipalCode=?', [manifest.office.id, subdivResults[0].municipalCode]))[0].votes;
+
+      for (let subdiv of subdivResults) {
+        var candidate = manifest.candidates[subdiv.candidateId];
+        var cb = document.createElement("div");
+        cb.classList.add("candidate-box");
+        cb.style.borderColor = '#' + candidate.color[4];
+
+        var candidateName = document.createElement("div")
+        candidateName.className = "candidate-name"
+        candidateName.innerHTML = subdiv.candidateName
+        cb.appendChild(candidateName)
+
+        var percentageBox = document.createElement("div")
+        percentageBox.className = 'candidate-percentage'
+        percentageBox.style.color = '#' + candidate.color[4]
+        percentageBox.innerHTML = ((subdiv.votes / totalVotes) * 100).toFixed(2) + '%'
+        cb.appendChild(percentageBox)
+
+        var rawVotes = document.createElement('div')
+        rawVotes.className = 'candidate-raw-votes'
+        rawVotes.innerHTML = subdiv.votes.toLocaleString(undefined)
+        cb.appendChild(rawVotes)
+
+        candidateBox.appendChild(cb);
+      }
+    }
+
+    internal().then(function(){
+      candidateBox1.innerHTML = ''
+      candidateBox1.appendChild(candidateBox)
+    })
   }
 
   function update_candidate_box(countyResults) {
