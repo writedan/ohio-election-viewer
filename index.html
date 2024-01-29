@@ -234,7 +234,7 @@
   function loadCategoryManifest(electionId) {
     // at this point we have enough information to load the county and subdivision layers
     manifest.layerLoading = async function(){
-      var url = 'http://localhost:3000/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/'
+      var url = 'https://writedan.github.io/ohio-election-visualizer/elections/' + manifest.election.year + '/' + manifest.election.type + '-maps/'
       await loadCountyShapefile(url + 'county/county')
       await loadSubdivisionShapefile(url + 'subdivision/subdivision')
       manifest.filterCounties = []
