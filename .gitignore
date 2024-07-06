@@ -4,6 +4,8 @@
 *-subdivision-codes.xlsx
 backup.db*
 *-election.xlsx
+election-results*
+maps/
 
 # Added by cargo
 
