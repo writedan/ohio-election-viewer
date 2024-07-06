@@ -125,9 +125,9 @@ fn main() {
 
             for (idx, (county, name, fips)) in reserve.iter_ordered().enumerate() {
                 let idx = idx as u32;
-                sheet.write(idx, 0, name);
-                sheet.write(idx, 1, county);
-                sheet.write(idx, 2, fips);
+                sheet.write(idx, 0, name).unwrap();
+                sheet.write(idx, 1, county).unwrap();
+                sheet.write(idx, 2, fips).unwrap();
             }
 
             workbook.save(workbook_uri.clone()).unwrap();
