@@ -72,6 +72,8 @@ fn main() {
 
             let mut sheet = workbook.add_worksheet();
 
+            let mut reserve = TwoKeyMap::<String, String, String>::new();
+
             for (idx, shape_record) in reader.iter_shapes_and_records().enumerate() {
                 let (shape, record) = match shape_record {
                     Ok((shape, record)) => (shape, record),
@@ -108,17 +110,24 @@ fn main() {
                     }
                 };
 
-                if let Some(fips) = fips {
-                    sheet.write(idx as u32, 0, fips).unwrap();
-                }
+                match (name, fips, county) {
+                    (Some(name), Some(fips), Some(county)) => {
+                        reserve.insert(county.to_string(), name.to_string(), fips.to_string());
+                    },
 
-                if let Some(name) = name {
-                    sheet.write(idx as u32, 1, name).unwrap();
+                    _ => {
+                        emit(Log::Error("some field failed to be set"));
+                        emit(Log::Info("there is likely an error in your shapefile map"));
+                        return
+                    }
                 }
+            }
 
-                if let Some(county) = county {
-                    sheet.write(idx as u32, 2, county).unwrap();
-                }
+            for (idx, (county, name, fips)) in reserve.iter_ordered().enumerate() {
+                let idx = idx as u32;
+                sheet.write(idx, 0, name);
+                sheet.write(idx, 1, county);
+                sheet.write(idx, 2, fips);
             }
 
             workbook.save(workbook_uri.clone()).unwrap();
@@ -143,10 +152,16 @@ fn main() {
             emit(Log::Info("If this was not the desired name, delete it from the database and run again with the --name argument set."));
 
             let workbook_uri: PathBuf = ["elections", &year, &r#type.to_lowercase()].iter().collect();
-            let precinct_wb = workbook_uri.join("precinct-conversions.xlsx"); // precinct to city/township FIPS
+            let precinct_wb = workbook_uri.join("precinct-conversions.xlsx"); // precinct to city/township FIPS; county abbreviation to county names
+            let municipal_wb = workbook_uri.join("municipal-codes.xlsx"); // fips codes to municipal names (and canonical county)
             let results_wbs = find_matching_files(&workbook_uri, "election-results");
             if !precinct_wb.exists() {
                 emit(Log::Error(format!("File does not exist: {}", precinct_wb.display().to_string().underline())));
+                return;
+            }
+
+            if !municipal_wb.exists() {
+                emit(Log::Error(format!("File does not exist: {}", municipal_wb.display().to_string().underline())));
                 return;
             }
 
@@ -158,6 +173,42 @@ fn main() {
 
         Commands::RunServer { bind_to } => {
             emit(Log::Error("not yet implemented"));
+        }
+    }
+}
+
+struct TwoKeyMap<K1, K2, V> {
+    items: Vec<(K1, K2, V)>
+}
+
+impl<K1: Ord + Clone, K2: Ord + Clone, V: Clone> TwoKeyMap<K1, K2, V> {
+    fn iter_ordered(&self) -> impl Iterator<Item = (K1, K2, V)> {
+        let mut items = self.items.clone();
+        items.sort_by(|a, b| {
+            match a.0.cmp(&b.0) {
+                std::cmp::Ordering::Equal => a.1.cmp(&b.1),
+                other => other,
+            }
+        });
+
+        items.into_iter()
+    }
+}
+
+impl<K1: std::cmp::PartialEq, K2: std::cmp::PartialEq, V> TwoKeyMap<K1, K2, V> {
+    fn insert(&mut self, key1: K1, key2: K2, value: V) {
+        self.items.push((key1, key2, value));
+    }
+
+    fn get(&self, key1: &K1, key2: &K2) -> Option<&V> {
+        self.items.iter()
+            .find(|(k1, k2, _)| k1 == key1 && k2 == key2)
+            .map(|(_, _, v)| v)
+    }
+
+    fn new() -> TwoKeyMap<K1, K2, V> {
+        TwoKeyMap::<K1, K2, V> {
+            items: Vec::new()
         }
     }
 }
