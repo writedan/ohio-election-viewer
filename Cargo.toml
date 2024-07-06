@@ -8,6 +8,10 @@ edition = "2021"
 [dependencies]
 rouille = "3"
 office = "0"
-sqlite = "0"
-clap = "4"
+rusqlite = "0"
+clap = { version = "4", features = ["derive"] }
 serde = "1"
+colored = "2"
+shapefile = "0"
+dbase = "0"
+rust_xlsxwriter = "0"
