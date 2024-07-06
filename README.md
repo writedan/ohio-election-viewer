@@ -1,29 +1,17 @@
-# Ohio Election Visualizer
+# Building Election Data
 
-This tool takes precinct data reported by the Ohio Secretary of State and projects the results onto county subdivisions as determined by the Census Bureau. Thus, one can view election data on the level of township or municipality as the case may be, a much finer level of detail than is available to the average person without significant costs of money or time.
+## Map Generation
 
-The website is built in HTML and Javascript; there is a Python script which converts from the requisite workbooks to a database used by the website.
+Due to the nature of copyright law I felt there was little I could include directly in the repository itself. It is necessary therefore to do some manual arrangement if you wish to run a local copy.
 
-## Building Election Data
+First, we need to establish the maps. The program assumes that we are using the [Ohio Department of Transportation GIS maps](https://gis.dot.state.oh.us/tims/Data/Download). You must download all of the township, city, and county maps. Import all these as vectors into QGIS (or another tool, but I used QGIS).
 
-There is a folder simply denotd `elections`. Everything necessary is located in there, but I have only uploaded that data which I manually created out of licensing concerns. Thankfully, the other requisite components are readily available online.
+You may need to fix the geometries of the city layer by running the "Fix geometries" tool. If so, remove the original `REFER_CITY` layer the rename the resulting `Fixed geometries` to `REFER_CITY`. Then, create a difference layer using the "Difference" tool with `REFER_TOWNSHIP` as input and `REFER_CITY` as overlay. Finally, use the "Merge vector layers" tool to merge `Difference` with `REFER_TOWNSHIP`, creating a `Merged` layer.
 
-Within the `elections` folder is a series of other folders, each with a given year. These are election years. For example, the `elections/2022` folder contains a `general-precinct-conversion.xlsx` file. This is the file I manually wrought; it consists of a list of precincts by county, to which I have attached the correspondong county subdivision FIPS code. The `general-` here means that it is a general election.
+You will then need to load the `qgis-layer-editor.py` file into the Python console and execute it. This will create a `municipals` layer, which you will then export as an ESRI Shapefile. **Note that the name of the directory must correspond to the name of the Shapefile.** If you named it "map.shp" (and "map.dbf" and so forth), these must be in a directory named "map".
 
-Besides this, a couple of other files are necessary. First, you need to create a folder called `general-maps`. This will contain the shapefile data for Ohio as of the 2022 general elections. There are two sub-folders you need to create: `county` and `municipality`, respectively containing the shapefiles for the counties and county subdivisions of Ohio.
+## Data Extraction
 
-The county shapefiles are available from the [Ohio Department of Transportation](https://gis.dot.state.oh.us/tims/Data/Download) under `Boundaries`, select `County` and then export. Be sure to rename each file to merely `county`, e.g. `county.shp`. 
+Now that we have generated a map we need to extract its data and populate the database with it. For each election there are essentially two parts, viz. the election results itself (by precinct) and the metadata over those precincts which we use to group them into cities and counties. In this step we will create a conversion table for FIPS codes to municipal names, which data is not within the precinct results workbooks.
 
-The Census Bureau [maintains shapefiles](https://catalog.data.gov/dataset/tiger-line-shapefile-2018-state-ohio-current-county-subdivision-state-based) for various years. Ensure you have the shapefiles current for the given election, and add to the `municipality` folder, aptly renaming the files therein as well.
-
-Finally, you need a `subdivision-codes.xlsx` file. This is [also available](https://www.census.gov/library/reference/code-lists/ansi.html#cousub) from the Census Bureau.
-
-Now with all this, the only thing missing is the election data itself. These are available from the [Ohio Secretary of State](https://www.ohiosos.gov/elections/election-results-and-data/). The expected format only goes back to the 2012 general election. Be sure you are downloading the `by Precinct` election files. This file requires some slight modification, namely that the `Master` sheet should be deleted. If you want to do multiple elections at once, e.g. when there are both statewide offices and ballot issues, you can name these, e.g. `general-election-1.xlsx`, `general-election-2.xlsx`, and so forth.
-
-Make sure your database is equipped. It must be named `elections.db`. If you want a fresh version, the `backup.db.schema` has all the queries necessary to set it up.
-
-You may then run `python3 election-converter.py <election type> <election year>`. `Election type` refers to the different elections within one year, e.g. a general, special, primary. The prefix of your files must correspond to this. The script may take several minutes to execute, because of the breadth of data.
-
-## Contributing
-
-There is still much [errata](https://writedan.github.io/ohio-election-viewer/errata) in this project. Anyone who wishes to get into the weeds of sorting out which precincts belong to which subdivisions is cordially and excessively thanked.
+Fortunately this step is simple and is built into the program: `ohio-election-visualizer extract-municipal-codes --year=<YEAR> --type=<TYPE> --map-path=PATH_TO_MAP_DIRECTORY`. This will create a `municipal-codes.xlsx` in the `elections` directory for the given year and type of election.
