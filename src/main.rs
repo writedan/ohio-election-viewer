@@ -1,4 +1,6 @@
+mod converter;
 use clap::{Parser, Subcommand};
+
 
 #[derive(Parser)]
 #[command(subcommand_value_name = "module")]
@@ -9,27 +11,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Extracts municipal codes from a Shapefile map and creates a table.")]
-    ExtractMunicipalCodes {
-        #[arg(long, value_name = "year", help = "The year of the election, which must exist as a directory in elections/")]
-        year: String,
-
-        #[arg(long, value_name = "type", help = "The type of the election, which must exist as a directory in elections/<year>/")]
-        r#type: String,
-
-        #[arg(long, value_name = "map", help = "Path to a directory containing the shapefile. The name of each file therein MUST match the name of the directory.")]
-        mapPath: String
+    #[command(about = "Initializes the database.")]
+    Init {
+        #[arg(long, help = "If the database already exists, remove it and re-initialize.", action = clap::ArgAction::SetTrue)]
+        force: bool
     },
 
-    #[command(about = "Load election results into the database.")]
+    #[command(about = "Extracts municipal codes from a Shapefile map and creates a table.")]
+    ExtractMunicipalCodes {
+        #[arg(long, value_name = "directory", help = "The name of the direction in elections/ containing preinct-results.xlsx.\nFor example, 2022/general.")]
+        election_path: String,
+
+        #[arg(long, value_name = "directory", help = "Path to a directory containing the shapefile. The name of each file therein MUST match the name of the directory.")]
+        map_path: String
+    },
+
+    #[command(about = "Load election results into the database.", name = "convert-election")]
     ElectionConverter {
-        #[arg(long, value_name = "year", help = "The year of the election, which must exist as a directory in elections/")]
-        year: String,
+        #[arg(long, value_name = "directory", help = "The name of the direction in elections/ containing preinct-results.xlsx.\nFor example, 2022/general.")]
+        election_path: String,
 
-        #[arg(long, value_name = "type", help = "The type of the election, which must exist as a directory in elections/<year>/")]
-        r#type: String,
-
-        #[arg(long, value_name = "name", help = "If you wish to provide a different name than the default \"<year> <type> Election\"")]
+        #[arg(long, value_name = "name", help = "The name of the election. Uses derived value otherwise.")]
         name: Option<String>
     },
 
@@ -40,34 +42,97 @@ enum Commands {
     },
 }
 
+fn raw_query<S: Into<String> + Copy>(conn: &rusqlite::Connection, q: S) {
+    query(conn, q, ())
+}
+
+fn query<S: Into<String> + Copy, P: rusqlite::Params>(conn: &rusqlite::Connection, query: S, params: P) {
+    use colored::Colorize;
+
+    match conn.execute(query.into().as_str(), params) {
+        Ok(_) => {},
+        Err(why) => {
+            emit(Log::Error(format!("failed to run query: {}", query.into().underline())));
+            emit(Log::Error(why.to_string()));
+        }
+    }
+}
+
 fn main() {
     use colored::Colorize;
     use std::path::PathBuf;
 
     let cli = Cli::parse();
     match &cli.module {
-        Commands::ExtractMunicipalCodes { year, r#type, mapPath } => {
-            let mapPath: PathBuf = mapPath.into();
+        Commands::Init { force } => {
+            use rusqlite::Connection;
 
-            let generalName = match mapPath.file_name() {
+            let path = PathBuf::from("elections.db");
+            if path.exists() && !force {
+                emit(Log::Error("database already initialized"));
+                emit(Log::Info("run with --force argument to override"));
+                return;
+            }
+
+            match std::fs::remove_file(path) {
+                Ok(_) => {},
+                Err(why) => return emit(Log::Error(format!("failed to remove {}: {}", "elections.db".underline(), why.to_string().underline())))
+            };
+
+            let mut conn = match Connection::open("elections.db") {
+                Ok(conn) => conn,
+                Err(why) => return emit(Log::Error(format!("unable to establish connection: {}", why.to_string().underline())))
+            };
+
+            let conn = conn.savepoint().unwrap();
+            match conn.execute_batch("
+                CREATE TABLE election_info(id integer primary key autoincrement, name text, date date, map text);
+                CREATE TABLE county(id integer primary key autoincrement, name text, fips text, electionId integer, foreign key (electionId) references election_info(id));
+                CREATE TABLE municipality(id integer primary key autoincrement, name text, fips text, countyId integer, foreign key (countyId) references county(id));
+                CREATE TABLE precinct(id integer primary key autoincrement, name text, municipalId integer, foreign key (municipalId) references municipality(id));
+                CREATE TABLE office_category(id integer primary key autoincrement, name text, electionId integer, foreign key (electionId) references election_info(id));
+                CREATE TABLE office_election(id integer primary key autoincrement, name text, categoryId integer, foreign key (categoryId) references office_category(id));
+                CREATE TABLE candidate(id integer primary key autoincrement, name text, officeId integer, foreign key (officeId) references office_election(id));
+                CREATE TABLE office_result(id integer primary key autoincrement, votes integer, candidateId integer, precinctId integer, foreign key (candidateId) references candidate(id), foreign key (precinctId) references precinct(id));
+                
+                CREATE VIEW state_results as select r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName from county_results r group by r.candidateId;
+                CREATE VIEW municipalities as select m.id, m.name as municipalName, m.fips as municipalCode, c.name as countyName, c.fips as countyCode, c.electionId from municipality m join county c on m.countyId = c.id;
+                CREATE VIEW precincts as select p.id, p.name as precinctName, m.municipalName, m.municipalCode, m.countyName, m.countyCode, m.electionId from precinct p join municipalities m on p.municipalId = m.id;
+                CREATE VIEW municipal_results as select m.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, m.name as municipalName, m.fips as municipalCode, m.countyId from precinct_results r join municipality m on r.municipalId = m.id group by r.candidateId, m.id;
+                CREATE VIEW county_results as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName, c.fips as countyCode from municipal_results r join county c on r.countyId = c.id group by r.candidateId, c.id;
+                CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.id as precinctId, p.name as precinctName, p.municipalId from office_result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id;
+            ") {
+                Ok(_) => {},
+                Err(why) => {
+                    return emit(Log::Error(format!("Failed to initialized database: {}", why.to_string().underline())));
+                }
+            };
+            conn.commit().unwrap();
+            println!("{} Database initialized.", "Success!".green().bold());
+        },
+
+        Commands::ExtractMunicipalCodes { election_path, map_path } => {
+            let map_path: PathBuf = map_path.into();
+
+            let general_name = match map_path.file_name() {
                 Some(name) => name.to_string_lossy(),
                 None => {
-                    emit(Log::Error(format!("Failed to get filename for path {}", mapPath.display())));
+                    emit(Log::Error(format!("Failed to get filename for path {}", map_path.display().to_string().underline())));
                     return;
                 }
             }.to_string();
 
-            let mut reader = match shapefile::Reader::from_path(mapPath.join(generalName.clone()).with_extension("shp")) {
+            let mut reader = match shapefile::Reader::from_path(map_path.join(general_name.clone()).with_extension("shp")) {
                 Ok(reader) => reader,
                 Err(why) => {
                     emit(Log::Error(format!("Failed to open shapefile: {}", why.to_string().underline())));
-                    emit(Log::Error(format!("Ensure this file exists: {}", mapPath.join(generalName.clone()).with_extension("shp").display().to_string().underline())));
-                    emit(Log::Error(format!("Ensure this file exists: {}", mapPath.join(generalName.clone()).with_extension("dbf").display().to_string().underline())));
+                    emit(Log::Error(format!("Ensure this file exists: {}", map_path.join(general_name.clone()).with_extension("shp").display().to_string().underline())));
+                    emit(Log::Error(format!("Ensure this file exists: {}", map_path.join(general_name.clone()).with_extension("dbf").display().to_string().underline())));
                     return;
                 }
             };
 
-            let workbook_uri: PathBuf = ["elections", &year, &r#type, "municipal-codes.xlsx"].iter().collect();
+            let workbook_uri: PathBuf = [&election_path, "municipal-codes.xlsx"].iter().collect();
             let mut workbook = rust_xlsxwriter::Workbook::new();
 
             let mut sheet = workbook.add_worksheet();
@@ -134,42 +199,7 @@ fn main() {
             println!("{} Successfully wrote and saved {}", "Finished!".green().bold(), workbook_uri.display().to_string().underline());
         },
 
-        Commands::ElectionConverter { year, r#type, name } => {
-            let mut r#type = r#type.to_owned();
-
-            if let Some(t) = r#type.get_mut(0..1) {
-                t.make_ascii_uppercase();
-            }
-
-            let r#type = r#type; // shadow as non-mutable
-
-            let name = match name {
-                Some(name) => name.to_owned(),
-                None => format!("{} {} Election", year, r#type)
-            };
-
-            emit(Log::Info(format!("Adding {} to the election index.", name.underline())));
-            emit(Log::Info("If this was not the desired name, delete it from the database and run again with the --name argument set."));
-
-            let workbook_uri: PathBuf = ["elections", &year, &r#type.to_lowercase()].iter().collect();
-            let precinct_wb = workbook_uri.join("precinct-conversions.xlsx"); // precinct to city/township FIPS; county abbreviation to county names
-            let municipal_wb = workbook_uri.join("municipal-codes.xlsx"); // fips codes to municipal names (and canonical county)
-            let results_wbs = find_matching_files(&workbook_uri, "election-results");
-            if !precinct_wb.exists() {
-                emit(Log::Error(format!("File does not exist: {}", precinct_wb.display().to_string().underline())));
-                return;
-            }
-
-            if !municipal_wb.exists() {
-                emit(Log::Error(format!("File does not exist: {}", municipal_wb.display().to_string().underline())));
-                return;
-            }
-
-            if results_wbs.len() == 0 {
-                emit(Log::Error(format!("No result workbooks found in {}", workbook_uri.display().to_string().underline())));
-                return;
-            }
-        },
+        Commands::ElectionConverter { election_path, name } => converter::run(election_path.to_owned(), name),
 
         Commands::RunServer { bind_to } => {
             emit(Log::Error("not yet implemented"));
@@ -195,15 +225,9 @@ impl<K1: Ord + Clone, K2: Ord + Clone, V: Clone> TwoKeyMap<K1, K2, V> {
     }
 }
 
-impl<K1: std::cmp::PartialEq, K2: std::cmp::PartialEq, V> TwoKeyMap<K1, K2, V> {
+impl<K1, K2, V> TwoKeyMap<K1, K2, V> {
     fn insert(&mut self, key1: K1, key2: K2, value: V) {
         self.items.push((key1, key2, value));
-    }
-
-    fn get(&self, key1: &K1, key2: &K2) -> Option<&V> {
-        self.items.iter()
-            .find(|(k1, k2, _)| k1 == key1 && k2 == key2)
-            .map(|(_, _, v)| v)
     }
 
     fn new() -> TwoKeyMap<K1, K2, V> {
@@ -211,31 +235,6 @@ impl<K1: std::cmp::PartialEq, K2: std::cmp::PartialEq, V> TwoKeyMap<K1, K2, V> {
             items: Vec::new()
         }
     }
-}
-
-fn find_matching_files(dir: &std::path::Path, pattern: &str) -> Vec<std::path::PathBuf> {
-    use std::fs;
-
-    let mut results = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(file_name) = path.file_name() {
-                    if let Some(name_str) = file_name.to_str() {
-                        if name_str.starts_with(pattern) && name_str.ends_with(".xlsx") {
-                            results.push(path.clone());
-                        }
-                    }
-                }
-            } else if path.is_dir() {
-                results.extend(find_matching_files(&path, pattern));
-            }
-        }
-    }
-
-    results
 }
 
 pub enum Log<S: Into<String>> {

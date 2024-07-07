@@ -6,6 +6,7 @@ backup.db*
 *-election.xlsx
 election-results*
 maps/
+map.filter
 
 # Added by cargo
 
