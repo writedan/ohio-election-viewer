@@ -92,18 +92,39 @@ pub fn run(election_path: String, name: &Option<String>) {
     emit(Log::Info("If this was not the desired name, delete it from the database and run again with the --name argument set."));
     
     let map_path: PathBuf = PathBuf::from(election_path).join("map");
-    conn.execute("INSERT INTO election_info(name, date, map) VALUES(?1, ?2, ?3)", (name, date, map_path.display().to_string())).unwrap();
-    conn.commit().unwrap();
+    conn.execute("INSERT INTO election_info(name, date, map) VALUES(?1, ?2, ?3);", (name, date, map_path.display().to_string())).unwrap();
+    let election_id = conn.last_insert_rowid();
 
     let mut county_abbr_lookup: HashMap<String, String> = HashMap::new(); // abbr -> name
+    let mut county_id_lookup: HashMap<String, i64> = HashMap::new(); // name -> county_id
     for row in 0..county_wb.get_size().0 {
         let row = row as u32;
         if let (Some(abbr), Some(name)) = (county_wb.get_value((row, 0)), county_wb.get_value((row, 1))) {
             county_abbr_lookup.insert(abbr.to_string(), name.to_string());
+            conn.execute("INSERT INTO county(name, electionId) VALUES(?1, ?2);", (name.to_string(), election_id)).unwrap();
+            county_id_lookup.insert(name.to_string(), conn.last_insert_rowid());
         } else {
             emit(Log::Warning(format!("Unable to resolve county on row={}", row)));
         }
     }
+
+    let mut municipal_fips_lookup: HashMap<String, i64> = HashMap::new(); // fips code -> municipal id
+    for row in 0..municipal_wb.get_size().0 {
+        let row = row as u32;
+        let county_abbr = municipal_wb.get_value((row, 1)).expect(&format!("Mising county on row={}", row).to_string()).to_string();
+        let county_name = match county_abbr_lookup.get(&county_abbr) {
+            Some(name) => name,
+            None => return emit(Log::Error(format!("Failed to get county from abbr={}. Ensure the counties sheet in the municipality worksheet is complete.", county_abbr)))
+        };
+
+        let county_id = county_id_lookup.get(county_name).unwrap();
+        let name = municipal_wb.get_value((row, 0)).unwrap().to_string();
+        let fips = municipal_wb.get_value((row, 2)).unwrap().to_string();
+        conn.execute("INSERT INTO municipality(name, fips, countyId) VALUES(?1, ?2, ?3)", (name, fips.clone(), county_id)).unwrap();
+        municipal_fips_lookup.insert(fips, conn.last_insert_rowid());
+    }
+
+    conn.commit().unwrap();
 }
 
 fn extract_date_and_remainder(input: &str) -> Result<(chrono::NaiveDate, &str), chrono::ParseError> {
