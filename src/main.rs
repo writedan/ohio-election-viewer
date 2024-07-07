@@ -12,7 +12,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(about = "Initializes the database.")]
-    Init {
+    InitDatabase {
         #[arg(long, help = "If the database already exists, remove it and re-initialize.", action = clap::ArgAction::SetTrue)]
         force: bool
     },
@@ -64,7 +64,7 @@ fn main() {
 
     let cli = Cli::parse();
     match &cli.module {
-        Commands::Init { force } => {
+        Commands::InitDatabase { force } => {
             use rusqlite::Connection;
 
             let path = PathBuf::from("elections.db");
@@ -87,20 +87,21 @@ fn main() {
             let conn = conn.savepoint().unwrap();
             match conn.execute_batch("
                 CREATE TABLE election_info(id integer primary key autoincrement, name text, date date, map text);
-                CREATE TABLE county(id integer primary key autoincrement, name text, fips text, electionId integer, foreign key (electionId) references election_info(id));
+                CREATE TABLE county(id integer primary key autoincrement, name text, electionId integer, foreign key (electionId) references election_info(id));
                 CREATE TABLE municipality(id integer primary key autoincrement, name text, fips text, countyId integer, foreign key (countyId) references county(id));
-                CREATE TABLE precinct(id integer primary key autoincrement, name text, municipalId integer, foreign key (municipalId) references municipality(id));
+                CREATE TABLE precinct(id integer primary key autoincrement, name text, municipalId integer, countyId integer, foreign key (municipalId) references municipality(id), foreign key (countyId) references county(id));
                 CREATE TABLE office_category(id integer primary key autoincrement, name text, electionId integer, foreign key (electionId) references election_info(id));
                 CREATE TABLE office_election(id integer primary key autoincrement, name text, categoryId integer, foreign key (categoryId) references office_category(id));
                 CREATE TABLE candidate(id integer primary key autoincrement, name text, officeId integer, foreign key (officeId) references office_election(id));
                 CREATE TABLE office_result(id integer primary key autoincrement, votes integer, candidateId integer, precinctId integer, foreign key (candidateId) references candidate(id), foreign key (precinctId) references precinct(id));
-                
+        
+                CREATE VIEW municipalities as select m.id, m.name as municipalName, m.fips as municipalCode, c.name as countyName, c.electionId from municipality m join county c on m.countyId = c.id;
+                CREATE VIEW precincts as select p.id, p.name as precinctName, m.municipalName, m.municipalCode, m.countyName, m.electionId from precinct p join municipalities m on p.municipalId = m.id;
+
                 CREATE VIEW state_results as select r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName from county_results r group by r.candidateId;
-                CREATE VIEW municipalities as select m.id, m.name as municipalName, m.fips as municipalCode, c.name as countyName, c.fips as countyCode, c.electionId from municipality m join county c on m.countyId = c.id;
-                CREATE VIEW precincts as select p.id, p.name as precinctName, m.municipalName, m.municipalCode, m.countyName, m.countyCode, m.electionId from precinct p join municipalities m on p.municipalId = m.id;
                 CREATE VIEW municipal_results as select m.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, m.name as municipalName, m.fips as municipalCode, m.countyId from precinct_results r join municipality m on r.municipalId = m.id group by r.candidateId, m.id;
-                CREATE VIEW county_results as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName, c.fips as countyCode from municipal_results r join county c on r.countyId = c.id group by r.candidateId, c.id;
-                CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.id as precinctId, p.name as precinctName, p.municipalId from office_result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id;
+                CREATE VIEW county_results as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName from precinct_results r join county c on r.countyId = c.id group by r.candidateId, c.id;
+                CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.id as precinctId, p.name as precinctName, p.municipalId, p.countyId from office_result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id;
             ") {
                 Ok(_) => {},
                 Err(why) => {
