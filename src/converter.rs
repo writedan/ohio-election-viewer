@@ -383,6 +383,32 @@ pub fn run(election_path: String, name: &Option<String>) {
         println!(" {}", "done".green());
     }
 
+    println!("Creating index tables");
+    conn.execute("DROP TABLE IF EXISTS indexed_precinct_results", ()).unwrap();
+    conn.execute("DROP TABLE IF EXISTS indexed_county_results", ()).unwrap();
+    conn.execute("DROP TABLE IF EXISTS indexed_municipal_results", ()).unwrap();
+    conn.execute("DROP TABLE IF EXISTS indexed_state_results", ()).unwrap();
+
+    print!("\tindexed_precinct_results");
+    std::io::stdout().flush().expect("Unable to flush stdout.");
+    conn.execute("CREATE TABLE indexed_precinct_results AS SELECT * FROM precinct_results", ()).unwrap();
+    println!(" {}", "done".green());
+
+    print!("\tindexed_county_results");
+    std::io::stdout().flush().expect("Unable to flush stdout.");
+    conn.execute("CREATE TABLE indexed_county_results AS SELECT * FROM county_results", ()).unwrap();
+    println!(" {}", "done".green());
+
+    print!("\tindexed_municipal_results");
+    std::io::stdout().flush().expect("Unable to flush stdout.");
+    conn.execute("CREATE TABLE indexed_municipal_results AS SELECT * FROM municipal_results", ()).unwrap();
+    println!(" {}", "done".green());
+
+    print!("\tindexed_state_results");
+    std::io::stdout().flush().expect("Unable to flush stdout.");
+    conn.execute("CREATE TABLE indexed_state_results AS SELECT * FROM state_results", ()).unwrap();
+    println!(" {}", "done".green());
+
     conn.commit().unwrap();
 
     println!("{} Successfully imported {} into the database.", "Finished!".green().bold(), name.underline());
