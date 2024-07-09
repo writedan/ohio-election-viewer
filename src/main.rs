@@ -176,8 +176,6 @@ fn main() {
                 match (name, fips, county) {
                     (Some(name), Some(fips), Some(county)) => {
                         let r#type = if name.ends_with("(Township)") { "township" } else { "city/village" };
-                        let name = if r#type == "township" { name.split(" (Township)").collect::<Vec<&str>>()[0] } else { name.split(" (City)").collect::<Vec<&str>>()[0] };
-
                         reserve.insert(county.to_string(), name.to_string(), fips.to_string(), r#type.to_string());
                     },
 
@@ -197,6 +195,52 @@ fn main() {
                 sheet.write(idx, 1, r#type).unwrap();
             }
 
+            let workbook_uri: PathBuf = [&election_path, "precinct-conversions.xlsx"].iter().collect();
+            if !workbook_uri.exists() {
+                emit(Log::Info("precinct-conversions.xlsx is missing, we will create it now"));
+                use std::io::Write;
+                use calamine::Reader;
+
+                let results = &converter::find_matching_files(&PathBuf::from(election_path), "election-results");
+                if results.len() == 0 {
+                    emit(Log::Warning(format!("{} was missing: precinct-conversions.xlsx cannot be generated", "election-results.xlsx".underline())));
+                } else {
+                    let mut result_precincts = calamine::open_workbook_auto(results[0].clone()).unwrap();
+                    let result_precincts = result_precincts.worksheet_range("Master");
+                    if result_precincts.is_ok() {
+                        let result_precincts = result_precincts.unwrap();
+
+                        let mut workbook = rust_xlsxwriter::Workbook::new();
+
+                        {
+                            let precincts = workbook.add_worksheet().set_name("precincts").unwrap();
+
+                            for row in 4..result_precincts.get_size().0 {
+                                let row = row as u32;
+
+                                let precinct_name = result_precincts.get_value((row, 1)).unwrap().to_string();
+                                let county = result_precincts.get_value((row, 0)).unwrap().to_string();
+                                precincts.write(row - 4, 0, county).unwrap();
+                                precincts.write(row - 4, 1, precinct_name).unwrap();
+                            }
+                        }
+
+                        {
+                            workbook.add_worksheet().set_name("counties").unwrap();
+                        }
+
+                        let save_uri: PathBuf = [&election_path, "precinct-conversions.xlsx"].iter().collect();
+                        workbook.save(save_uri.clone()).unwrap();
+                        println!("{} Successfully wrote and saved {}", "Finished!".green().bold(), save_uri.display().to_string().underline());
+                    } else {
+                        emit(Log::Warning(format!("{} was misisng Master sheet: precinct-conversions.xlsx cannot be generated", results[0].display().to_string())));
+                    }
+                }
+            } else {
+                println!("{} precinct-conversions.xlsx already exists", "Finished!".green().bold());
+            }
+
+            let workbook_uri: PathBuf = [&election_path, "municipal-codes.xlsx"].iter().collect();
             workbook.save(workbook_uri.clone()).unwrap();
             println!("{} Successfully wrote and saved {}", "Finished!".green().bold(), workbook_uri.display().to_string().underline());
         },
