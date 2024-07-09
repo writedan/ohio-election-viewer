@@ -26,7 +26,7 @@ enum Commands {
         map_path: String
     },
 
-    #[command(about = "Load election results into the database.", name = "convert-election")]
+    #[command(about = "Load election results into the database.", name = "import-election")]
     ElectionConverter {
         #[arg(long, value_name = "directory", help = "The name of the direction in elections/ containing preinct-results.xlsx.\nFor example, 2022/general.")]
         election_path: String,
