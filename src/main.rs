@@ -248,7 +248,18 @@ fn main() {
         Commands::ElectionConverter { election_path, name } => converter::run(election_path.to_owned(), name),
 
         Commands::RunServer { bind_to } => {
-            emit(Log::Error("not yet implemented"));
+            use std::fs::File;
+
+            rouille::start_server(bind_to, move |request| {
+                rouille::router!(request, 
+                    (GET) ["/"] => rouille::Response::from_file("text/html", File::open("public/index.html").unwrap()),
+                    (GET) ["/sql.js"] => rouille::Response::from_file("application/javascript", File::open("public/sql.js").unwrap()),
+                    (GET) ["/worker.js"] => rouille::Response::from_file("application/javascript", File::open("public/worker.js").unwrap()),
+                    (GET) ["/elections.db"] => rouille::Response::from_file("application/octet-stream", File::open("elections.db").unwrap()),
+                    (GET) ["/elections/{year}/{election_class}/map/{file}", year: String, election_class: String, file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("elections/{year}/{election_class}/map/{file}")).unwrap()),
+                    _ => rouille::Response::empty_404()
+                )
+            });
         }
     }
 }
