@@ -193,7 +193,7 @@ pub fn run(election_path: String, name: &Option<String>) {
             fips,
             canonical_county,
             precincts: Rc::new(RefCell::new(Vec::new())),
-            merges: Vec::new()
+            merges: Vec::new(),
         }));
     }
 
@@ -263,17 +263,26 @@ pub fn run(election_path: String, name: &Option<String>) {
                     precincts.insert(Rc::clone(&p));
                 }
 
-                merges.insert(muni.fips.clone());
+                //merges.insert(muni.fips.clone());
+                for code in muni.fips.split(",").collect::<Vec<_>>().iter() {
+                    merges.insert(code.to_string());
+                }
             });
 
             let new_munc = Rc::new(Municipality {
-                name: municis_names.join(" + "),
+                name: municis_names.join(" / "),
                 fips: fips_codes.join(","),
                 r#type: MunicipalType::Mixed,
                 canonical_county: Rc::clone(&municis[0].canonical_county),
                 precincts: Rc::new(RefCell::new(precincts.into_iter().collect())),
-                merges: merges.into_iter().collect()
+                merges: merges.into_iter().collect(),
             });
+
+            for fips in &new_munc.merges {
+                for code in fips.split(",").collect::<Vec<_>>().iter() {
+                    fips_codes.push(code.to_string());
+                }
+            }
 
             for fips in &fips_codes {
                 municipal_lookup.remove(fips);
@@ -293,13 +302,23 @@ pub fn run(election_path: String, name: &Option<String>) {
         munc.precincts.borrow_mut().push(Rc::new(precinct));
     }
 
+    let mut muncs_fips: HashSet<String> = HashSet::new();
+
     for (_, muni) in municipal_lookup.iter() {
         if muni.precincts.borrow().len() == 0 {
             if let MunicipalType::Township = muni.r#type {
-                emit(Log::Warning(format!("{} (township canonically in {} County) was assigned 0 precincts. Verify this was intended behavior.", muni.name, muni.canonical_county.name)));
+                emit(Log::Warning(format!("{} (township canonically in {} County) was assigned 0 precincts.", muni.name, muni.canonical_county.name)));
             }
+
+            write!(filter_file, "{}\n", muni.fips).unwrap();
+            continue;
         }
+
+        if muni.merges.len() > 0 { write!(merge_file, "{}\n", muni.merges.join(",")).unwrap(); }
+        muncs_fips.insert(muni.fips.clone());
     }
+
+    write!(File::create("muni.dump").unwrap(), "{:#?}", municipal_lookup).unwrap();
 
     todo!();
 
