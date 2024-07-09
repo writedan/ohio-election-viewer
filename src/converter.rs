@@ -342,9 +342,8 @@ pub fn run(election_path: String, name: &Option<String>) {
     println!(" {}", "done".green());
 
     for (idx, (name, sheet)) in results_wbs.iter().enumerate() {
-        if idx > 0 {
-            println!(" {}", "done".green());
-        }
+        print!("Importing precinct results for {} elections", name.underline());
+        std::io::stdout().flush().expect("Unable to flush stdout.");
 
         conn.execute("INSERT INTO office_category(name, electionId) VALUES(?1, ?2)", (name, election_id)).unwrap();
         let category_id = conn.last_insert_rowid();
@@ -357,12 +356,6 @@ pub fn run(election_path: String, name: &Option<String>) {
             if let Some(name) = sheet.get_value((0, col)) {
                 office_name = name.to_string().trim().to_string();
                 if !office_name.is_empty() {
-                    if office_id > -1 {
-                        println!(" {}", "done".green());
-                    }
-
-                    print!("Importing precincts for {}", office_name.replace("\r\n", " -- ").underline());
-                    std::io::stdout().flush().expect("Unable to flush stdout.");
                     conn.execute("INSERT INTO office_election(name, categoryId) VALUES(?1, ?2)", (office_name.clone(), category_id)).unwrap();
                     office_id = conn.last_insert_rowid();
                 }
@@ -386,9 +379,9 @@ pub fn run(election_path: String, name: &Option<String>) {
                 conn.execute("INSERT INTO result(votes, candidateId, precinctId) VALUES(?1, ?2, ?3)", (votes, candidate_id, precinct_id)).unwrap();
             }
         }
-    }
 
-    println!(" {}", "done".green());
+        println!(" {}", "done".green());
+    }
 
     conn.commit().unwrap();
 
