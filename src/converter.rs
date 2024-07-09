@@ -371,6 +371,7 @@ pub fn run(election_path: String, name: &Option<String>) {
                 let county_name = sheet.get_value((row, 0)).unwrap().to_string();
                 let precinct_name = sheet.get_value((row, 1)).unwrap().to_string();
                 let votes = sheet.get_value((row, col)).unwrap().to_string();
+                if votes == "0" { continue; }
                 let (precinct, precinct_id) = match precinct_lookup.get(&(county_name.clone(), precinct_name.clone())) {
                     Some((precinct, precinct_id)) => (Rc::clone(&precinct), precinct_id),
                     None => return emit(Log::Error(format!("Unable to find precinct {} in {} county on election-results#{} row={}", precinct_name.underline(), county_name.underline(), name.underline(), row)))
@@ -436,7 +437,7 @@ fn extract_date_and_remainder(input: &str) -> Result<(chrono::NaiveDate, &str), 
     }
 }
 
-fn find_matching_files(dir: &std::path::Path, pattern: &str) -> Vec<std::path::PathBuf> {
+pub fn find_matching_files(dir: &std::path::Path, pattern: &str) -> Vec<std::path::PathBuf> {
     use std::fs;
 
     let mut results = Vec::new();
