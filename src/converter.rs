@@ -1,7 +1,50 @@
 use crate::Log;
+use std::rc::Rc;
+use std::cell::RefCell;
+
+#[derive(Debug)]
+struct County {
+    name: String,
+    id: i64,
+}
+
+#[derive(Debug)]
+enum MunicipalType {
+    City, Township, Mixed
+}
+
+#[derive(Debug)]
+struct Municipality {
+    name: String,
+    fips: String,
+    r#type: MunicipalType,
+    precincts: Rc<RefCell<Vec<Rc<Precinct>>>>,
+    merges: Vec<String>, // list of fips been merged with
+}
+
+#[derive(Debug)]
+struct Precinct {
+    name: String,
+    county: Rc<County>,
+    row_id: u32
+}
+
+impl std::hash::Hash for Precinct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.row_id.hash(state);
+    }
+}
+
+impl PartialEq for Precinct {
+    fn eq(&self, other: &Self) -> bool {
+        self.row_id == other.row_id
+    }
+}
+
+impl Eq for Precinct {}
 
 pub fn run(election_path: String, name: &Option<String>) {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use rusqlite::Connection;
     use std::path::PathBuf;
     use colored::Colorize;
@@ -29,9 +72,15 @@ pub fn run(election_path: String, name: &Option<String>) {
 
     // first we need to identify which municipalities to exclude from the final map
     // as well as setup our tables
-    let mut output_file = match File::create("map.filter") {
+    let mut filter_file = match File::create("map-filter.temp") {
         Ok(file) => file,
-        Err(why) => return emit(Log::Error(format!("unable to open {}: {}", "map.filter".underline(), why.to_string().underline())))
+        Err(why) => return emit(Log::Error(format!("unable to open {}: {}", "map-filter.temp".underline(), why.to_string().underline())))
+    };
+
+    // these municiplaities will be merged together
+    let mut merge_file = match File::create("map-merge.temp") {
+        Ok(file) => file,
+        Err(why) => return emit(Log::Error(format!("unable to open {}: {}", "map-merge.temp".underline(), why.to_string().underline())))
     };
 
     if !PathBuf::from("elections.db").exists() {
@@ -50,6 +99,7 @@ pub fn run(election_path: String, name: &Option<String>) {
     };
 
     let mut conn = conn.savepoint().unwrap();
+    emit(Log::Info("If any error occurs the database will be rolled back to this point and no further action is necessary."));
 
     let mut precinct_wb = calamine::open_workbook_auto(precinct_wb).unwrap();
     let mut county_wb = precinct_wb.worksheet_range("counties").unwrap();
@@ -88,41 +138,152 @@ pub fn run(election_path: String, name: &Option<String>) {
 
     let name = format!("{} {}", date.year(), name);
 
-    emit(Log::Info(format!("Adding {} to the election index.", name.underline())));
+    println!("{} Adding {} to the election index (date detected as {}).", "Ready!".green().bold(), name.underline(), date.to_string().underline());
     emit(Log::Info("If this was not the desired name, delete it from the database and run again with the --name argument set."));
-    
     let map_path: PathBuf = PathBuf::from(election_path).join("map");
     conn.execute("INSERT INTO election_info(name, date, map) VALUES(?1, ?2, ?3);", (name, date, map_path.display().to_string())).unwrap();
     let election_id = conn.last_insert_rowid();
 
     let mut county_abbr_lookup: HashMap<String, String> = HashMap::new(); // abbr -> name
-    let mut county_id_lookup: HashMap<String, i64> = HashMap::new(); // name -> county_id
+    let mut county_lookup: HashMap<String, Rc<County>> = HashMap::new();
     for row in 0..county_wb.get_size().0 {
         let row = row as u32;
-        if let (Some(abbr), Some(name)) = (county_wb.get_value((row, 0)), county_wb.get_value((row, 1))) {
-            county_abbr_lookup.insert(abbr.to_string(), name.to_string());
-            conn.execute("INSERT INTO county(name, electionId) VALUES(?1, ?2);", (name.to_string(), election_id)).unwrap();
-            county_id_lookup.insert(name.to_string(), conn.last_insert_rowid());
-        } else {
-            emit(Log::Warning(format!("Unable to resolve county on row={}", row)));
-        }
-    }
 
-    let mut municipal_fips_lookup: HashMap<String, i64> = HashMap::new(); // fips code -> municipal id
-    for row in 0..municipal_wb.get_size().0 {
-        let row = row as u32;
-        let county_abbr = municipal_wb.get_value((row, 1)).expect(&format!("Mising county on row={}", row).to_string()).to_string();
-        let county_name = match county_abbr_lookup.get(&county_abbr) {
-            Some(name) => name,
-            None => return emit(Log::Error(format!("Failed to get county from abbr={}. Ensure the counties sheet in the municipality worksheet is complete.", county_abbr)))
+        let (abbr, name) = match (county_wb.get_value((row, 0)), county_wb.get_value((row, 1))) {
+            (Some(abbr), Some(name))=> (abbr.to_string(), name.to_string()),
+            _ => return emit(Log::Error(format!("Missing county abbreviation or name in precinct-conversions#counties row={}", row)))
         };
 
-        let county_id = county_id_lookup.get(county_name).unwrap();
-        let name = municipal_wb.get_value((row, 0)).unwrap().to_string();
-        let fips = municipal_wb.get_value((row, 2)).unwrap().to_string();
-        conn.execute("INSERT INTO municipality(name, fips, countyId) VALUES(?1, ?2, ?3)", (name, fips.clone(), county_id)).unwrap();
-        municipal_fips_lookup.insert(fips, conn.last_insert_rowid());
+        conn.execute("INSERT INTO county(name, electionId) VALUES(?1, ?2)", (name.clone(), election_id)).unwrap();
+        let county = County {
+            name: name.clone(),
+            id: conn.last_insert_rowid()
+        };
+
+        county_abbr_lookup.insert(abbr, name.clone());
+        county_lookup.insert(name, Rc::new(county));
     }
+
+    let mut municipal_lookup: HashMap<String, Rc<Municipality>> = HashMap::new(); // fips -> municipality
+    for row in 0..municipal_wb.get_size().0 {
+        let row = row as u32;
+
+        let (name, r#type, fips) = match (municipal_wb.get_value((row, 0)), municipal_wb.get_value((row, 1)), municipal_wb.get_value((row, 3))) {
+            (Some(name), Some(r#type),Some(fips)) => (name.to_string(), r#type.to_string(), fips.to_string()),
+            _ => return emit(Log::Error(format!("Missing name, type, or FIPS code in municipal-codes row={}", row)))
+        };
+
+        municipal_lookup.insert(fips.clone(), Rc::new(Municipality {
+            name,
+            r#type: match r#type.as_str() {
+                "city/village" => MunicipalType::City,
+                "township" => MunicipalType::Township,
+                _ => return emit(Log::Error(format!("Unknown municipal type {} in municipal-codes row={}", r#type.underline(), row)))
+            },
+            fips,
+            precincts: Rc::new(RefCell::new(Vec::new())),
+            merges: Vec::new()
+        }));
+    }
+
+    for row in 0..precinct_wb.get_size().0 {
+        let row = row as u32;
+
+        let (county, name) = match (precinct_wb.get_value((row, 0)), precinct_wb.get_value((row, 1))) {
+            (Some(county), Some(name)) => {
+                let county = match county_lookup.get(&county.to_string()) {
+                    Some(county) => Rc::clone(county),
+                    None => return emit(Log::Error(format!("Unable to find county {} on precinct-conversions#precincts row={}", county.to_string().underline(), row)))
+                };
+
+                (county, name.to_string())
+            },
+
+            _ => return emit(Log::Error(format!("Missing county or name in precinct-conversions#precincts row={}", row)))
+        };
+
+        let precinct = Precinct {
+            name: name.clone(), county: Rc::clone(&county), row_id: row
+        };
+
+        let mut fips_codes = Vec::new();
+        for col in 2..precinct_wb.get_size().1 {
+            let col = col as u32;
+
+            let fips = precinct_wb.get_value((row, col)).unwrap().to_string();
+            if fips.is_empty() {
+                break
+            } else {
+                fips_codes.push(fips);
+            }
+        }
+
+        let mut municis = Vec::new();
+        for fips in &fips_codes {
+            municis.push(match municipal_lookup.get(fips) {
+                Some(boxed) => Rc::clone(boxed),
+                None => return emit(Log::Error(format!("Unable to find municipality from FIPS code {} on precinct-conversions#precincts row={}", fips.underline(), row)))
+            });
+        }
+
+        if fips_codes.len() > 1 {
+            let mut municis_names: Vec<String> = Vec::new();
+            municis_names.push(municis[0].name.clone());
+            /*municis.iter().for_each(|muni| {
+                if fips_codes.contains(&muni.fips) {
+                    municis_names.push(muni.name.clone());
+                }
+            });*/
+            let mut idx = 1;
+            for _ in idx..fips_codes.len() {
+                let muni = &municis[idx];
+                if fips_codes.contains(&muni.fips) {
+                    municis_names.push(muni.name.clone());
+                }
+
+                idx = idx + 1;
+            }
+
+            let mut precincts: HashSet<Rc<Precinct>> = HashSet::new();
+            let mut merges: HashSet<String> = HashSet::new();
+
+            municis.iter().for_each(|muni| {
+                for p in &*muni.precincts.borrow() {
+                    precincts.insert(Rc::clone(&p));
+                }
+
+                merges.insert(muni.fips.clone());
+            });
+
+            let new_munc = Rc::new(Municipality {
+                name: municis_names.join(" + "),
+                fips: fips_codes.join(","),
+                r#type: MunicipalType::Mixed,
+                precincts: Rc::new(RefCell::new(precincts.into_iter().collect())),
+                merges: merges.into_iter().collect()
+            });
+
+            for fips in &fips_codes {
+                municipal_lookup.remove(fips);
+                municipal_lookup.insert(fips.clone(), Rc::clone(&new_munc));
+            }
+        }
+
+        if fips_codes.len() == 0 {
+            return emit(Log::Error(format!("Precinct {} in {} County not assigned to municipality on precinct-conversions#precincts row={}", name, county.name, row)));
+        }
+
+        let munc = match municipal_lookup.get(&fips_codes[0]) { // at this point this is the only municipality present or all the fips codes now point to the same merged entity
+            Some(munc) => Rc::clone(munc),
+            None => return emit(Log::Error(format!("Unable to find municipality with FIPS code {} on precinct-conversions#precincts row={}", fips_codes[0].underline(), row)))
+        };
+
+        munc.precincts.borrow_mut().push(Rc::new(precinct));
+    }
+
+    write!(File::create("muni.dump").unwrap(), "{:#?}", municipal_lookup).unwrap();
+
+    todo!();
 
     conn.commit().unwrap();
 }

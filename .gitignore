@@ -8,6 +8,8 @@ election-results*
 maps/
 map.filter
 elections.db
+*.dump
+*.temp
 
 # Added by cargo
 
