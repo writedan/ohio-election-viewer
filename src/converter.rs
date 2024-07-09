@@ -17,6 +17,7 @@ enum MunicipalType {
 struct Municipality {
     name: String,
     fips: String,
+    canonical_county: Rc<County>,
     r#type: MunicipalType,
     precincts: Rc<RefCell<Vec<Rc<Precinct>>>>,
     merges: Vec<String>, // list of fips been merged with
@@ -168,9 +169,18 @@ pub fn run(election_path: String, name: &Option<String>) {
     for row in 0..municipal_wb.get_size().0 {
         let row = row as u32;
 
-        let (name, r#type, fips) = match (municipal_wb.get_value((row, 0)), municipal_wb.get_value((row, 1)), municipal_wb.get_value((row, 3))) {
-            (Some(name), Some(r#type),Some(fips)) => (name.to_string(), r#type.to_string(), fips.to_string()),
-            _ => return emit(Log::Error(format!("Missing name, type, or FIPS code in municipal-codes row={}", row)))
+        let (name, county_abbr, r#type, fips) = match (municipal_wb.get_value((row, 0)), municipal_wb.get_value((row, 2)), municipal_wb.get_value((row, 1)), municipal_wb.get_value((row, 3))) {
+            (Some(name), Some(county), Some(r#type), Some(fips)) => (name.to_string(), county.to_string(), r#type.to_string(), fips.to_string()),
+            _ => return emit(Log::Error(format!("Missing name, county abbreviation, type, or FIPS code in municipal-codes row={}", row)))
+        };
+
+        let canonical_county = match county_abbr_lookup.get(&county_abbr) {
+            Some(county_name) => match county_lookup.get(&county_name.clone()) {
+                Some(county) => Rc::clone(county),
+                None => return emit(Log::Error(format!("Could not resolve county by name of {} on municipal-codes row={}", county_name.underline(), row)))
+            },
+
+            None => return emit(Log::Error(format!("Could not find county by abbreviation {} on municipal-codes row={}", county_abbr.underline(), row)))
         };
 
         municipal_lookup.insert(fips.clone(), Rc::new(Municipality {
@@ -181,6 +191,7 @@ pub fn run(election_path: String, name: &Option<String>) {
                 _ => return emit(Log::Error(format!("Unknown municipal type {} in municipal-codes row={}", r#type.underline(), row)))
             },
             fips,
+            canonical_county,
             precincts: Rc::new(RefCell::new(Vec::new())),
             merges: Vec::new()
         }));
@@ -259,6 +270,7 @@ pub fn run(election_path: String, name: &Option<String>) {
                 name: municis_names.join(" + "),
                 fips: fips_codes.join(","),
                 r#type: MunicipalType::Mixed,
+                canonical_county: Rc::clone(&municis[0].canonical_county),
                 precincts: Rc::new(RefCell::new(precincts.into_iter().collect())),
                 merges: merges.into_iter().collect()
             });
@@ -281,7 +293,13 @@ pub fn run(election_path: String, name: &Option<String>) {
         munc.precincts.borrow_mut().push(Rc::new(precinct));
     }
 
-    write!(File::create("muni.dump").unwrap(), "{:#?}", municipal_lookup).unwrap();
+    for (_, muni) in municipal_lookup.iter() {
+        if muni.precincts.borrow().len() == 0 {
+            if let MunicipalType::Township = muni.r#type {
+                emit(Log::Warning(format!("{} (township canonically in {} County) was assigned 0 precincts. Verify this was intended behavior.", muni.name, muni.canonical_county.name)));
+            }
+        }
+    }
 
     todo!();
 
