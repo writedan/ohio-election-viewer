@@ -120,7 +120,7 @@ pub fn run(election_path: String, name: &Option<String>) {
                 continue; // we pass over this one because all its data is kept in the other sheets
             }
 
-            sheets.push(wb.worksheet_range(&x).unwrap());
+            sheets.push((x.clone(), wb.worksheet_range(&x).unwrap()));
 
             println!(" {}", "done".green());
         }
@@ -128,7 +128,7 @@ pub fn run(election_path: String, name: &Option<String>) {
         sheets
     }).flatten().collect();
 
-    let contents = results_wbs[0].get_value((0, 0)).expect("Cell A1 must at least begin with the date of the election.").to_string();
+    let contents = results_wbs[0].1.get_value((0, 0)).expect("Cell A1 must at least begin with the date of the election.").to_string();
     let (date, name) = match extract_date_and_remainder(contents.as_str()) {
         Ok((date, title)) => (date, title.split("Official").collect::<Vec<_>>()[0].trim()),
         Err(why) => {
@@ -142,7 +142,7 @@ pub fn run(election_path: String, name: &Option<String>) {
     println!("{} Adding {} to the election index (date detected as {}).", "Ready!".green().bold(), name.underline(), date.to_string().underline());
     emit(Log::Info("If this was not the desired name, delete it from the database and run again with the --name argument set."));
     let map_path: PathBuf = PathBuf::from(election_path).join("map");
-    conn.execute("INSERT INTO election_info(name, date, map) VALUES(?1, ?2, ?3);", (name, date, map_path.display().to_string())).unwrap();
+    conn.execute("INSERT INTO election_info(name, date, map) VALUES(?1, ?2, ?3);", (name.clone(), date, map_path.display().to_string())).unwrap();
     let election_id = conn.last_insert_rowid();
 
     let mut county_abbr_lookup: HashMap<String, String> = HashMap::new(); // abbr -> name
@@ -314,15 +314,85 @@ pub fn run(election_path: String, name: &Option<String>) {
             continue;
         }
 
-        if muni.merges.len() > 0 { write!(merge_file, "{}\n", muni.merges.join(",")).unwrap(); }
+        if muni.merges.len() > 0 { write!(merge_file, "{}={}\n", muni.merges.join(","), muni.fips.split(",").collect::<Vec<_>>()[0]).unwrap(); }
         muncs_fips.insert(muni.fips.clone());
     }
 
-    write!(File::create("muni.dump").unwrap(), "{:#?}", municipal_lookup).unwrap();
+    let muncs_fips = muncs_fips.iter().map(|fips| {
+        fips.split(",").collect::<Vec<_>>()[0]
+    }).collect::<Vec<_>>();
 
-    todo!();
+    let muncs = muncs_fips.iter().map(|fips| {
+        Rc::clone(&municipal_lookup.get(&fips.to_string()).unwrap())
+    }).collect::<Vec<_>>();
+
+    let mut precinct_lookup: HashMap<(String, String), (Rc<Precinct>, i64)> = HashMap::new(); // (county name, precinct name) -> (Precinct, row_id)
+
+    print!("Importing municipalities and precincts into database");
+    std::io::stdout().flush().expect("Unable to flush stdout.");
+    for muni in muncs.iter() {
+        conn.execute("INSERT INTO municipality(name, fips, electionId) VALUES(?1, ?2, ?3)", (muni.name.clone(), muni.fips.clone(), election_id)).unwrap();
+        let muni_id = conn.last_insert_rowid();
+        for p in &*muni.precincts.borrow() {
+            conn.execute("INSERT INTO precinct(name, municipalId, countyId) VALUES(?1, ?2, ?3)", (p.name.clone(), muni_id, p.county.id)).unwrap();
+            precinct_lookup.insert((p.county.name.clone(), p.name.clone()), (Rc::clone(&p), conn.last_insert_rowid()));
+        }
+    }
+
+    println!(" {}", "done".green());
+
+    for (idx, (name, sheet)) in results_wbs.iter().enumerate() {
+        if idx > 0 {
+            println!(" {}", "done".green());
+        }
+
+        conn.execute("INSERT INTO office_category(name, electionId) VALUES(?1, ?2)", (name, election_id)).unwrap();
+        let category_id = conn.last_insert_rowid();
+
+        let mut office_name = String::new();
+        let mut office_id: i64 = -1;
+        for col in 8..sheet.get_size().1 {
+            let col = col as u32;
+
+            if let Some(name) = sheet.get_value((0, col)) {
+                office_name = name.to_string().trim().to_string();
+                if !office_name.is_empty() {
+                    if office_id > -1 {
+                        println!(" {}", "done".green());
+                    }
+
+                    print!("Importing precincts for {}", office_name.replace("\r\n", " -- ").underline());
+                    std::io::stdout().flush().expect("Unable to flush stdout.");
+                    conn.execute("INSERT INTO office_election(name, categoryId) VALUES(?1, ?2)", (office_name.clone(), category_id)).unwrap();
+                    office_id = conn.last_insert_rowid();
+                }
+            }
+
+            let candidate_name = sheet.get_value((1, col)).unwrap().to_string();
+            if candidate_name.ends_with("(WI)*") { continue; }
+            conn.execute("INSERT INTO candidate(name, officeId) VALUES(?1, ?2)", (candidate_name.clone(), office_id)).unwrap();
+            let candidate_id = conn.last_insert_rowid();
+
+            for row in 4..sheet.get_size().0 {
+                let row = row as u32;
+                let county_name = sheet.get_value((row, 0)).unwrap().to_string();
+                let precinct_name = sheet.get_value((row, 1)).unwrap().to_string();
+                let votes = sheet.get_value((row, col)).unwrap().to_string();
+                let (precinct, precinct_id) = match precinct_lookup.get(&(county_name.clone(), precinct_name.clone())) {
+                    Some((precinct, precinct_id)) => (Rc::clone(&precinct), precinct_id),
+                    None => return emit(Log::Error(format!("Unable to find precinct {} in {} county on election-results#{} row={}", precinct_name.underline(), county_name.underline(), name.underline(), row)))
+                };
+
+                conn.execute("INSERT INTO result(votes, candidateId, precinctId) VALUES(?1, ?2, ?3)", (votes, candidate_id, precinct_id)).unwrap();
+            }
+        }
+    }
+
+    println!(" {}", "done".green());
 
     conn.commit().unwrap();
+
+    println!("{} Successfully imported {} into the database.", "Finished!".green().bold(), name.underline());
 }
 
 fn extract_date_and_remainder(input: &str) -> Result<(chrono::NaiveDate, &str), chrono::ParseError> {
