@@ -234,9 +234,8 @@
   function loadCategoryManifest(electionId) {
     // at this point we have enough information to load the county and subdivision layers
     manifest.layerLoading = async function(){
-      var url = './elections/' + manifest.election.map;
-      await loadCountyShapefile('./maps/county-map/county');
-      await loadSubdivisionShapefile(url);
+      await loadCountyShapefile(new URL('./maps/county-map/county', window.location.href).href);
+      await loadSubdivisionShapefile(new URL('./' + manifest.election.map + '/map', window.location.href).href);
       manifest.filterCounties = []
       manifest.filterSubs = []
       manifest.countyMouseover = async function(event){
@@ -244,8 +243,8 @@
           fillOpacity: 0.9
         })
 
-        var countyCode = event.layer.feature.properties.FIPS_COUNT - 39000
-        var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyCode]));
+        var countyCode = event.layer.feature.properties.COUNTY
+        var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyCode]));
         await update_candidate_box(countyResults)
       };
 
@@ -558,8 +557,11 @@
             return;
           }
 
-          var countyCode = county.feature.properties.FIPS_COUNT - 39000
-          var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyCode]))
+          console.log(county.feature.properties.COUNTY)
+
+          var countyCode = county.feature.properties.COUNTY
+          var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyCode]))
+
 
           if (countyResults.length == 0) {
             manifest.countyLayer.removeLayer(county)
@@ -579,9 +581,9 @@
             })
 
             county.on('click', async function(event){
-              var countyCode = county.feature.properties.FIPS_COUNT - 39000;
-              var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].votes
-              var countyId = (await queryWorker('select id from indexed_county_results where officeId=? and countyCode=?', [manifest.office.id, countyCode]))[0].id
+              var countyCode = county.feature.properties.COUNTY;
+              var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyName LIKE ?', [manifest.office.id, countyCode]))[0].votes
+              var countyId = (await queryWorker('select id from indexed_county_results where officeId=? and countyName LIKE ?', [manifest.office.id, countyCode]))[0].id
               map.fitBounds(county.getBounds())
               await init_county_view(totalVotes, countyCode, countyId)
             })
@@ -763,7 +765,7 @@
     candidateBox.appendChild(goBack)
 
     async function internal_ucb() {
-      var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyCode=? ORDER BY votes desc', [manifest.office.id, countyResults[0].countyCode]))[0].votes
+      var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyResults[0].countyCode]))[0].votes
 
       for (let county of countyResults) {
         var candidate = manifest.candidates[county.candidateId]

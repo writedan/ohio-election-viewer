@@ -258,7 +258,7 @@ fn main() {
                     (GET) ["/worker.js"] => rouille::Response::from_file("application/javascript", File::open("public/worker.js").unwrap()),
                     (GET) ["/elections.db"] => rouille::Response::from_file("application/octet-stream", File::open("elections.db").unwrap()),
                     (GET) ["/elections/{year}/{election_class}/map/{file}", year: String, election_class: String, file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("elections/{year}/{election_class}/map/{file}")).unwrap()),
-                    (GET) ["/maps/county-map/{file}", file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("maps/county-map/{}", file)).unwrap()),
+                    (GET) ["/maps/county-map/{file}", file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("maps/county/{}", file)).unwrap()),
                     _ => rouille::Response::empty_404()
                 )
             });
