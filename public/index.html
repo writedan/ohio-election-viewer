@@ -333,7 +333,6 @@
   }
 
   async function loadMunicipalResults(county_results) {
-    console.log(county_results);
     document.getElementById('county-name').innerHTML = county_results.name + " County";
     let candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = "Waiting for maps and database to load.";
@@ -372,8 +371,9 @@
           let municipal_results = municipalities[municipality.feature.properties.fips];
 
           let color_gradient = Math.round((municipal_results.election.candidates[0].votes / municipal_results.election.total_votes) / manifest.vote_gradients) - 1;
-          if (color_gradient > 4) {
+          if (color_gradient > 5) {
             console.warn(`${municipal_results.name} color gradient exceeds maximum: ${color_gradient}`);
+            color_gradient = 5;
           }
 
           municipality.setStyle({
@@ -482,11 +482,11 @@
   loadElectionManifest();
 
   manifest.colors = {
-      red: ['FFBEBE', 'FF8585', 'FF5252', 'D40000', '8C0000'],
-      blue: ['B0C4FF', '739DFF', '5277FF', '2846B3', '001A66'],
-      green: ['A7FFDE', '69FFB4', '52FFA8', '00A378', '005138'],
-      purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6'],
-      yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900']
+      red: ['FFBEBE', 'FF8585', 'FF5252', 'D40000', '8C0000', '380000'],
+      blue: ['B0C4FF', '739DFF', '5277FF', '2846B3', '001A66', '000a29'],
+      green: ['A7FFDE', '69FFB4', '52FFA8', '00A378', '005138', '002016'],
+      purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6', '240042'],
+      yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900', '3d3d00']
     }
 
   manifest.filterCounties = [];
