@@ -8,28 +8,6 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
   <script src="http://calvinmetcalf.github.io/leaflet.shapefile/leaflet.shpfile.js"></script>
-
-  <script>
-    function generateUUID() { // Public Domain/MIT
-      var d = new Date().getTime();//Timestamp
-      var d2 = ((typeof performance !== 'undefined') && performance.now && (performance.now()*1000)) || 0;//Time in microseconds since page-load or 0 if unsupported
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          var r = Math.random() * 16;//random number between 0 and 16
-          if(d > 0){//Use timestamp until depleted
-              r = (d + r)%16 | 0;
-              d = Math.floor(d/16);
-          } else {//Use microseconds since page-load if supported
-              r = (d2 + r)%16 | 0;
-              d2 = Math.floor(d2/16);
-          }
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-      });
-    }
-
-    // thanks to https://stackoverflow.com/a/8809472
-  </script>
-
-  <script src="sql.js"></script>
   <style>
     body {
     margin: 0;
@@ -108,10 +86,6 @@
     border: 2px solid #007bff;
   }
   </style>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
-  <script>
-    </script>
 </head>
 
 
@@ -131,46 +105,377 @@
   var tile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
   }).addTo(map);
+</script>
 
-  async function loadCountyShapefile(url) {
-    let countyLayer;
-    await shp(url).then(function (geojson) {
-      if (geojson) {
-        countyLayer = L.geoJSON(geojson);
-        console.log("County shapefile loaded.")
-      } else {
-        console.error('Error loading county Shapefile.');
-      }
-    }).catch(function (error) {
-      console.log(error)
-      console.error('Error loading county Shapefile:', error);
-    });
-    manifest.countyLayer = countyLayer;
+<script>
+  let manifest = {};
+
+  async function get_api(url) {
+    let resp = await (await fetch (url)).json();
+    if (resp.error) {
+      alert(resp.error);
+    } else {
+      return resp;
+    }
   }
 
-  async function loadSubdivisionShapefile(url) {
-    let subdivisionLayer;
-    await shp(url).then(function (geojson) {
-      if (geojson) {
-        subdivisionLayer = L.geoJSON(geojson);
-        console.log("Loaded subdivision shapefile")
-      } else {
-        console.error('Error loading subdivision Shapefile.');
-      }
-    }).catch(function (error) {
-      console.error('Error loading subdivision Shapefile:', error);
-    });
+  async function loadElectionManifest() {
+    document.getElementById('county-name').innerHTML = 'Ohio Election Visualizer';
+    let elections = await get_api("./api/election-manifest");
+    let candidateBox = document.getElementById("candidates");
 
-    manifest.subdivisionLayer = subdivisionLayer;
+    candidateBox.innerHTML = '';
+    for (let election of elections) {
+      let candidate = document.createElement("div");
+      candidate.classList.add("candidate-box");
+      candidate.classList.add("election-box");
+
+      let candidateName = document.createElement("div");
+      candidateName.className = "candidate-name";
+      candidateName.innerHTML = election.name;
+      candidate.appendChild(candidateName);
+
+      let candidateVotes = document.createElement("div");
+      candidateVotes.className = "candidate-raw-votes";
+      candidateVotes.innerHTML = new Date(election.date);
+      candidate.appendChild(candidateVotes);
+
+      candidateBox.appendChild(candidate);
+      candidate.onclick = function(){
+        manifest.election = election;
+        loadCategoryManifest()
+      };
+    }
   }
+
+  async function loadCategoryManifest() {
+    document.getElementById('county-name').innerHTML = manifest.election.name;
+    let categories = await get_api(`./api/election-categories/${manifest.election.id}`);
+    let candidateBox = document.getElementById("candidates");
+
+    candidateBox.innerHTML = '';
+    for (let category of categories) {
+      let candidate = document.createElement("div");
+      candidate.classList.add("candidate-box");
+      candidate.classList.add("election-box");
+
+      let candidateName = document.createElement("div");
+      candidateName.className = "candidate-name";
+      candidateName.innerHTML = category.name;
+      candidate.appendChild(candidateName);
+
+      candidateBox.appendChild(candidate);
+      candidate.onclick = function(){
+        manifest.category = category;
+        loadOfficeManifest();
+      };
+    }
+
+    manifest.countyMap = async function loadCountyMap(){
+      let countyLayer;
+      await shp(new URL("maps/county-map/county", window.location.href).href).then(function (geojson) {
+        if (geojson) {
+          countyLayer = L.geoJSON(geojson);
+          console.log("County shapefile loaded.")
+        } else {
+          console.error('Error loading county Shapefile.');
+        }
+      }).catch(function (error) {
+        console.log(error)
+        console.error('Error loading county Shapefile:', error);
+      });
+
+      return (await countyLayer);
+    }();
+
+    manifest.municipalMap = async function loadMunicipalMap(){
+      let municipalLayer;
+      await shp(new URL(manifest.election.map_path + "/map", window.location.href).href).then(function (geojson) {
+        if (geojson) {
+          municipalLayer = L.geoJSON(geojson);
+          console.log("Municipal shapefile loaded.")
+        } else {
+          console.error('Error loading municipal Shapefile.');
+        }
+      }).catch(function (error) {
+        console.log(error)
+        console.error('Error loading municipal Shapefile:', error);
+      });
+
+      return (await municipalLayer);
+    }();
+  }
+
+  async function loadOfficeManifest() {
+    document.getElementById('county-name').innerHTML = manifest.category.name;
+    let offices = await get_api(`./api/category-offices/${manifest.category.id}`);
+    let candidateBox = document.getElementById("candidates");
+
+    candidateBox.innerHTML = '';
+    for (let office of offices) {
+      let candidate = document.createElement("div");
+      candidate.classList.add("candidate-box");
+      candidate.classList.add("election-box");
+
+      let candidateName = document.createElement("div");
+      candidateName.className = "candidate-name";
+      candidateName.innerHTML = office.name.replaceAll("\r\n", "<br/>");
+      candidate.appendChild(candidateName);
+
+      candidateBox.appendChild(candidate);
+      candidate.onclick = function(){
+        manifest.office = office;
+        loadOfficeResults();
+      };
+    }
+  }
+
+  async function loadOfficeResults() {
+    document.getElementById('county-name').innerHTML = manifest.office.name.replaceAll("\r\n", "<br/>");
+    let candidateBox = document.getElementById("candidates");
+    candidateBox.innerHTML = "Waiting for maps and database to load.";
+
+    manifest.countyMap = await manifest.countyMap;
+    manifest.municipalMap = await manifest.municipalMap;
+    manifest.municipalResults = get_api(`./api/${manifest.office.id}/all_municipalities`);
+    let state_results = await get_api(`./api/state-results/${manifest.office.id}`);
+    manifest.stateResults = state_results;
+    let counties = await get_api(`./api/${manifest.election.id}/${manifest.office.id}/counties`);
+
+    for (county in counties) {
+      counties[county.toLowerCase()] = counties[county];
+    }
+
+    while (manifest.filterCounties.length) {
+      manifest.filterCounties.pop().addTo(manifest.countyMap);
+    }
+
+    await assign_candidate_colors(state_results);
+    await draw_candidate_box(state_results);
+
+    async function update_counties() {
+      return new Promise((resolve, reject) => {
+        const iterator = manifest.countyMap.getLayers()[Symbol.iterator]();
+
+        async function update_next_county() {
+          const {value: county, done} = iterator.next();
+          if (done) {
+            resolve();
+            return;
+          }
+
+          if (!(county.feature.properties.COUNTY.toLowerCase() in counties)) {
+            manifest.filterCounties.push(county);
+            manifest.countyMap.removeLayer(county);
+            update_next_county();
+            return;
+          }
+
+          let county_results = counties[county.feature.properties.COUNTY.toLowerCase()];
+          county.setStyle({
+            fillColor: '#' + manifest.candidates[county_results.election.candidates[0].name].color[4],
+            weight: 1,
+            color: 'black',
+            fillOpacity: 0.7
+          });
+
+          county.on("mouseover", function(){
+            document.getElementById('county-name').innerHTML = `${county_results.name} County`;
+            county.setStyle({
+              fillOpacity: 0.9
+            });
+
+            draw_candidate_box(county_results.election);
+          });
+
+          county.on("mouseout", function(){
+            document.getElementById('county-name').innerHTML = manifest.office.name.replaceAll("\r\n", "<br/>");
+            draw_candidate_box(state_results);
+            county.setStyle({
+              fillOpacity: 0.7
+            });
+          });
+
+          update_next_county();
+        }
+
+        update_next_county();
+      });
+    }
+
+    update_counties();
+
+    manifest.countyMap.addTo(map);
+  }
+
+  async function loadMunicipalResults() {
+    console.log("begin")
+    document.getElementById('county-name').innerHTML = manifest.office.name;
+    let candidateBox = document.getElementById("candidates");
+    candidateBox.innerHTML = "Waiting for maps and database to load.";
+
+    let state_results = manifest.stateResults;
+
+    let municipalities = await manifest.municipalResults;
+
+    draw_candidate_box(state_results);
+
+    manifest.countyMap = await manifest.countyMap;
+    manifest.municipalMap = await manifest.municipalMap;
+    manifest.municipalResults = await manifest.municipalResults;
+
+    map.removeLayer(manifest.countyMap);
+
+    console.log(`${manifest.filterMunicipalities.length} municipalities to be restored.`)
+    while (manifest.filterMunicipalities.length) {
+      manifest.filterMunicipalities.pop().addTo(manifest.municipalMap);
+    }
+
+    async function update_municipalities() {
+      return new Promise((resolve, reject) => {
+        const iterator = manifest.municipalMap.getLayers()[Symbol.iterator]();
+
+        async function update_next_municipality() {
+           const {value: municipality, done} = iterator.next();
+           if (done) {
+            resolve();
+            return;
+           }
+
+           let municipal_results = manifest.municipalResults[municipality.feature.properties.fips];
+           if (municipal_results === undefined) {
+            manifest.filterMunicipalities.push(municipality);
+            manifest.municipalMap.removeLayer(municipality);
+            update_next_municipality();
+            return;
+           }
+
+           municipality.setStyle({
+            fillColor: '#' + manifest.candidates[municipal_results.election.candidates[0].name].color[4],
+            weight: 1,
+            color: 'black',
+            fillOpacity: 0.7
+          });
+
+          municipality.on("mouseover", function(){
+            document.getElementById('county-name').innerHTML = `${municipal_results.name}`;
+            municipality.setStyle({
+              fillOpacity: 0.9
+            });
+
+            draw_candidate_box(municipal_results.election);
+          });
+
+          municipality.on("mouseout", function(){
+            document.getElementById('county-name').innerHTML = manifest.office.name;
+            draw_candidate_box(state_results);
+            municipality.setStyle({
+              fillOpacity: 0.7
+            });
+          });
+
+          update_next_municipality();
+        }
+
+        update_next_municipality();
+      });
+    }
+
+    update_municipalities();
+  }
+
+  async function assign_candidate_colors(results) {
+    let colors = {};
+    Object.assign(colors, manifest.colors);
+    manifest.candidates = {};
+
+    for (let cand of results.candidates) {
+      let color_name = resolveCandidateColor(cand.name, colors);
+      let color = colors[color_name];
+      delete colors[color_name];
+
+      manifest.candidates[cand.name] = {
+        color: color,
+        votes: cand.votes
+      }
+    }
+  }
+
+  async function draw_candidate_box(results) {
+    let candidateBox = document.getElementById("candidates");
+    candidateBox.innerHTML = '';
+
+    for (let cand of results.candidates) {
+      let color = manifest.candidates[cand.name].color;
+
+      var cb = document.createElement("div");
+      cb.classList.add("candidate-box");
+      cb.style.borderColor = '#' + color[4];
+
+      var candidateName = document.createElement("div")
+      candidateName.className = "candidate-name"
+      candidateName.innerHTML = cand.name.replaceAll("\r\n", "<br/>");
+      cb.appendChild(candidateName)
+
+      var percentageBox = document.createElement("div")
+      percentageBox.className = 'candidate-percentage'
+      percentageBox.style.color = '#' + color[4]
+      percentageBox.innerHTML = ((cand.votes / results.total_votes) * 100).toFixed(2) + '%'
+      cb.appendChild(percentageBox)
+
+      var rawVotes = document.createElement('div')
+      rawVotes.className = 'candidate-raw-votes'
+      rawVotes.innerHTML = cand.votes.toLocaleString(undefined)
+      cb.appendChild(rawVotes);
+
+      candidateBox.append(cb);
+    }
+  }
+
+  function resolveCandidateColor(name, colors) {
+    if ((name.includes('(R)') || name == 'No') && colors.red) {
+      return 'red'
+    }
+
+    if (name.includes('(D)') && colors.blue) {
+      return 'blue'
+    }
+
+    if (name == 'Yes' && colors.green) {
+      return 'green'
+    }
+
+    let keys = Object.keys(colors)
+    return keys.pop()
+  }
+
+  loadElectionManifest();
+
+  manifest.colors = {
+      red: ['FFBEBE', 'FF8585', 'FF5252', 'D40000', '8C0000'],
+      blue: ['B0C4FF', '739DFF', '5277FF', '2846B3', '001A66'],
+      green: ['A7FFDE', '69FFB4', '52FFA8', '00A378', '005138'],
+      purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6'],
+      yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900']
+    }
+
+  manifest.filterCounties = [];
+  manifest.filterMunicipalities = [];
 
   map.on('zoomend', function () {
     var bounds = map.getBounds();
 
-    if (checkPercentageInView(bounds) > 0.25) {
-      if (map.hasLayer(manifest.subdivisionLayer)) {
-        map.addLayer(manifest.countyLayer);
-        map.removeLayer(manifest.subdivisionLayer);
+    if (checkPercentageInView(bounds) > 0.50) {
+      if (map.hasLayer(manifest.municipalMap)) {
+        manifest.countyMap.addTo(map);
+        map.removeLayer(manifest.municipalMap);
+        loadOfficeResults();
+      }
+    } else if (checkPercentageInView(bounds) <= 0.50) {
+      if (map.hasLayer(manifest.countyMap)) {
+        map.removeLayer(manifest.countyMap);
+        manifest.municipalMap.addTo(map);
+        loadMunicipalResults();
       }
     }
   });
@@ -195,660 +500,6 @@
     var neLng = Math.min(bounds1.getNorthEast().lng, bounds2.getNorthEast().lng);
 
     return L.latLngBounds(L.latLng(swLat, swLng), L.latLng(neLat, neLng));
-  }
-
-</script>
-
-
-<script>
-  var manifest = {}
-
-  function loadElectionManifest() {
-    document.getElementById('county-name').innerHTML = 'Ohio Election Visualizer';
-    var elections = stmt("select * from election_info order by date desc")
-    var candidateBox = document.getElementById("candidates");
-    candidateBox.innerHTML = '';
-    for (let election of elections) {
-      var candidate = document.createElement("div");
-      candidate.classList.add("candidate-box");
-      candidate.classList.add("election-box")
-
-      var candidateName = document.createElement("div")
-      candidateName.className = "candidate-name"
-      candidateName.innerHTML = election.name
-      candidate.appendChild(candidateName)
-
-      var candidateVotes = document.createElement("div")
-      candidateVotes.className = "candidate-raw-votes"
-      candidateVotes.innerHTML = new Date(election.date).toLocaleDateString();
-      candidate.appendChild(candidateVotes)
-
-      candidateBox.appendChild(candidate);
-      candidate.onclick = function(){
-        manifest.election = election
-        loadCategoryManifest(election.id)
-      };
-    }
-  }
-
-  function loadCategoryManifest(electionId) {
-    // at this point we have enough information to load the county and subdivision layers
-    manifest.layerLoading = async function(){
-      await loadCountyShapefile(new URL('./maps/county-map/county', window.location.href).href);
-      await loadSubdivisionShapefile(new URL('./' + manifest.election.map + '/map', window.location.href).href);
-      manifest.filterCounties = []
-      manifest.filterSubs = []
-      manifest.countyMouseover = async function(event){
-        event.layer.setStyle({
-          fillOpacity: 0.9
-        })
-
-        var countyCode = event.layer.feature.properties.COUNTY
-        var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyCode]));
-        await update_candidate_box(countyResults)
-      };
-
-      manifest.countyLayer.on('mouseout', function(event){
-        document.getElementById('county-name').innerHTML = manifest.office.name;
-        update_candidate_box_statewide(manifest.office.totalVotes)
-        event.layer.setStyle({
-          fillOpacity: 0.7
-        })
-      })
-
-
-      manifest.subdivisionLayer.on('mouseout', async function(event){
-        let county = (await queryWorker('select *, sum(votes) as totalVotes from indexed_county_results where id=? and officeId=?', [manifest.countyId, manifest.office.id]))[0]
-        document.getElementById('county-name').innerHTML = county.countyName;
-        upadte_candidate_box_countywide(county.totalVotes)
-        event.layer.setStyle({
-          fillOpacity: 0.7
-        })
-      })
-
-
-      manifest.subdivMouseover = async function(event, municipalCode) {
-        event.layer.setStyle({
-          fillOpacity: 0.9
-        });
-
-        var subdivResults = (await queryWorker('select * from indexed_municipal_results where officeId=? and municipalCode=? order by votes desc', [manifest.office.id, municipalCode]))
-        manifest.countyId = subdivResults[0].countyId;
-        await update_candidate_box_subdiv(subdivResults)
-      }
-    }();
-
-    var candidateBox = document.getElementById("candidates");
-    candidateBox.innerHTML = '';
-
-    document.getElementById('county-name').innerHTML = manifest.election.name;
-
-    var goBack = document.createElement("div");
-    goBack.classList.add("candidate-box");
-    goBack.classList.add("back-button");
-
-    var goBackN = document.createElement("div")
-    goBackN.className = "candidate-name"
-    goBackN.innerHTML = 'Back to <b>Election Index</b>';
-    goBack.appendChild(goBackN)
-    goBack.onclick = function(){
-      loadElectionManifest()
-    }
-    candidateBox.appendChild(goBack)
-
-    var categories = stmt("select * from office_category where electionId=?", [electionId])
-    for (let category of categories) {
-      var candidate = document.createElement("div")
-      candidate.classList.add("candidate-box");
-      candidate.classList.add("election-box")
-
-      var candidateName = document.createElement("div")
-      candidateName.className = "candidate-name"
-      candidateName.innerHTML = category.name
-      candidate.appendChild(candidateName)
-
-      candidateBox.appendChild(candidate);
-      candidate.onclick = function(){
-        manifest.category = category;
-        loadOfficeManifest(category.id)
-      };
-    }
-  }
-
-  function loadOfficeManifest(categoryId) {
-    var candidateBox = document.getElementById("candidates");
-    candidateBox.innerHTML = '';
-
-    document.getElementById('county-name').innerHTML = manifest.category.name;
-
-    map.eachLayer(function (layer) {
-      if (layer == manifest.countyLayer || layer == manifest.subdivisionLayer) {
-        map.removeLayer(layer);
-      }
-    }); // we need the map cleared, else it will accumulate
-
-    var goBack = document.createElement("div");
-    goBack.classList.add("candidate-box");
-    goBack.classList.add("back-button");
-    //goBack.style.backgroundColor='grey';
-
-    var goBackN = document.createElement("div")
-    goBackN.className = "candidate-name"
-    goBackN.innerHTML = 'Back to <b>' + manifest.election.name + '</b>';
-    goBack.appendChild(goBackN)
-    goBack.onclick = function(){
-      loadCategoryManifest(manifest.election.id)
-    }
-    candidateBox.appendChild(goBack)
-
-    var offices = stmt("select * from office_election where categoryId=?", [categoryId])
-    for (let office of offices) {
-      var candidate = document.createElement("div")
-      candidate.classList.add("candidate-box");
-      candidate.classList.add("election-box")
-
-      var candidateName = document.createElement("div")
-      candidateName.className = "candidate-name"
-      candidateName.innerHTML = office.name
-      candidate.appendChild(candidateName)
-
-      candidateBox.appendChild(candidate);
-      candidate.onclick = function(){
-        manifest.office = office;
-        displayElectionLoadingScreen(manifest);
-      };
-    }
-  }
-
-  async function displayElectionLoadingScreen(manifest) {
-    document.getElementById('county-name').innerHTML = manifest.office.name;
-    var candidateBox = document.getElementById('candidates');
-    candidateBox.innerHTML = 'The database is still loading result data. This should only take a few more seconds.';
-    displayElection(manifest);
-  }
-
-  function candidateColor(name, availableColors) {
-    if ((name.includes('(R)') || name == 'No') && availableColors.red) {
-      return 'red'
-    }
-
-    if (name.includes('(D)') && availableColors.blue) {
-      return 'blue'
-    }
-
-    if (name == 'Yes' && availableColors.green) {
-      return 'green'
-    }
-
-    let keys = Object.keys(availableColors)
-    return keys.pop()
-  }
-
-  async function displayElection(manifest) {
-    var availableColors = {}
-    Object.assign(availableColors, manifest.colors)
-
-    let totalVotes = (await queryWorker('select sum(votes) as votes from indexed_state_results where officeId=?', [manifest.office.id]))[0].votes
-
-    manifest.office.totalVotes = totalVotes;
-
-    var candidates = await queryWorker("select candidateName as name, candidateId as id, votes from indexed_state_results where officeId=? ORDER BY votes DESC", [manifest.office.id])
-
-    manifest.candidates = {}
-    for (let candidate of candidates) {
-      let color = availableColors[candidateColor(candidate.name, availableColors)]
-      delete availableColors[candidateColor(candidate.name, availableColors)];
-      candidate.color = color;
-
-      manifest.candidates[candidate.id] = candidate
-    }
-
-    await update_candidate_box_statewide(manifest.office.totalVotes);
-
-    initmap(manifest)
-  }
-
-  async function upadte_candidate_box_countywide(totalVotes) {
-    var candidateBox1 = document.getElementById('candidates');
-
-    var candidateBox = document.createElement('div')
-
-    async function internal() {
-
-      var goBack = document.createElement("div");
-      goBack.classList.add("candidate-box");
-      goBack.classList.add("back-button");
-     // goBack.style.backgroundColor='grey';
-
-      var goBackN = document.createElement("div")
-      goBackN.className = "candidate-name"
-      goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
-      goBack.appendChild(goBackN)
-      goBack.onclick = function(){
-        loadOfficeManifest(manifest.category.id);
-      }
-      candidateBox.appendChild(goBack)
-
-      var candidates = await queryWorker('select candidateName as name, candidateId as id, votes from indexed_county_results where officeId=? and id=? ORDER BY votes desc', [manifest.office.id, manifest.countyId])
-
-      for (let candidateIdx of candidates) {
-        let candidate = manifest.candidates[candidateIdx.id]
-
-        var cb = document.createElement("div");
-        cb.classList.add("candidate-box");
-        cb.style.borderColor = '#' + candidate.color[4];
-
-        var candidateName = document.createElement("div")
-        candidateName.className = "candidate-name"
-        candidateName.innerHTML = candidate.name
-        cb.appendChild(candidateName)
-
-        var percentageBox = document.createElement("div")
-        percentageBox.className = 'candidate-percentage'
-        percentageBox.style.color = '#' + candidate.color[4]
-        percentageBox.innerHTML = ((candidateIdx.votes / totalVotes) * 100).toFixed(2) + '%'
-        cb.appendChild(percentageBox)
-
-        var rawVotes = document.createElement('div')
-        rawVotes.className = 'candidate-raw-votes'
-        rawVotes.innerHTML = candidateIdx.votes.toLocaleString(undefined)
-        cb.appendChild(rawVotes)
-
-        candidateBox.appendChild(cb);
-      }
-    }
-
-    await internal();
-
-    candidateBox1.innerHTML = ''
-    candidateBox1.appendChild(candidateBox)
-  }
-
-  async function update_candidate_box_statewide(totalVotes) {
-    var candidateBox1 = document.getElementById('candidates');
-
-    var candidateBox = document.createElement('div')
-
-    async function internal() {
-
-    var goBack = document.createElement("div");
-    goBack.classList.add("candidate-box");
-    goBack.classList.add("back-button");
-   // goBack.style.backgroundColor='grey';
-
-    var goBackN = document.createElement("div")
-    goBackN.className = "candidate-name"
-    goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
-    goBack.appendChild(goBackN)
-    goBack.onclick = function(){
-      loadOfficeManifest(manifest.category.id);
-    }
-    candidateBox.appendChild(goBack)
-
-    var candidates = await queryWorker("select candidateName as name, candidateId as id, votes from indexed_state_results where officeId=? ORDER BY votes DESC", [manifest.office.id])
-
-    for (let candidateIdx of candidates) {
-      let candidate = manifest.candidates[candidateIdx.id]
-
-      var cb = document.createElement("div");
-      cb.classList.add("candidate-box");
-      cb.style.borderColor = '#' + candidate.color[4];
-
-      var candidateName = document.createElement("div")
-      candidateName.className = "candidate-name"
-      candidateName.innerHTML = candidate.name
-      cb.appendChild(candidateName)
-
-      var percentageBox = document.createElement("div")
-      percentageBox.className = 'candidate-percentage'
-      percentageBox.style.color = '#' + candidate.color[4]
-      percentageBox.innerHTML = ((candidate.votes / totalVotes) * 100).toFixed(2) + '%'
-      cb.appendChild(percentageBox)
-
-      var rawVotes = document.createElement('div')
-      rawVotes.className = 'candidate-raw-votes'
-      rawVotes.innerHTML = candidate.votes.toLocaleString(undefined)
-      cb.appendChild(rawVotes)
-
-      candidateBox.appendChild(cb);
-
-    }}
-    await internal();
-
-    candidateBox1.innerHTML = ''
-      candidateBox1.appendChild(candidateBox)
-  }
-
-  let db;
-  async function work() {
-    db = await loadDatabase();
-    loadElectionManifest();
-  }
-
-  work();
-
-    manifest.colors = {
-      red: ['FFBEBE', 'FF8585', 'FF5252', 'D40000', '8C0000'],
-      blue: ['B0C4FF', '739DFF', '5277FF', '2846B3', '001A66'],
-      green: ['A7FFDE', '69FFB4', '52FFA8', '00A378', '005138'],
-      purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6'],
-      yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900']
-    }
-</script>
-
-<script>
-  // for coloring the map and related purposes
-  async function initmap(manifest) {
-    await manifest.layerLoading; // if the shapefiles aren't yet loaded, we need to wait for them
-
-    while (manifest.filterCounties.length) {
-      ///manifest.countyLayer.addLayer(manifest.filterCounties.pop())
-      manifest.filterCounties.pop().addTo(manifest.countyLayer)
-    }
-
-    async function update_counties() {
-      return new Promise((resolve, reject) => {
-        const iterator = manifest.countyLayer.getLayers()[Symbol.iterator]();
-
-        async function update_next_county() {
-          const {value: county, done} = iterator.next();
-          if (done) {
-            resolve();
-            return;
-          }
-
-          console.log(county.feature.properties.COUNTY)
-
-          var countyCode = county.feature.properties.COUNTY
-          var countyResults = (await queryWorker('select * from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyCode]))
-
-
-          if (countyResults.length == 0) {
-            manifest.countyLayer.removeLayer(county)
-            manifest.filterCounties.push(county)
-          } else {
-            var candidate = manifest.candidates[countyResults[0].candidateId]
-            county.setStyle({
-              fillColor: '#' + candidate.color[2],
-              weight: 1,
-              color: 'black',
-              fillOpacity: 0.7
-            });
-
-            county.on('mouseover', function(event){
-              event.layer = county
-              manifest.countyMouseover(event)
-            })
-
-            county.on('click', async function(event){
-              var countyCode = county.feature.properties.COUNTY;
-              var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyName LIKE ?', [manifest.office.id, countyCode]))[0].votes
-              var countyId = (await queryWorker('select id from indexed_county_results where officeId=? and countyName LIKE ?', [manifest.office.id, countyCode]))[0].id
-              map.fitBounds(county.getBounds())
-              await init_county_view(totalVotes, countyCode, countyId)
-            })
-          }
-
-          await update_next_county();
-        }
-
-        update_next_county();
-      });
-    }
-
-    await update_counties();
-
-    /*manifest.countyLayer.on('mouseover', function(event){
-      let countyCode = event.layer.feature.properties.FIPS_COUNT;
-
-    })*/
-
-    manifest.countyLayer.addTo(map)
-  }
-
-  async function init_county_view(totalVotes, countyCode, countyId) {
-    map.removeLayer(manifest.countyLayer)
-
-    console.log('Restoring',manifest.filterSubs.length,'subdivisions')
-
-    while (manifest.filterSubs.length) {
-      manifest.filterSubs.pop().addTo(manifest.subdivisionLayer)
-    }
-
-    /*manifest.subdivisionLayer.eachLayer(async function(subdiv){
-      if (subdiv.feature.properties.COUNTYFP != countyCode) {
-        manifest.subdivisionLayer.removeLayer(subdiv);
-        manifest.filterSubs.push(subdiv)
-      } else {
-        var municipalCode = Number(subdiv.feature.properties.COUSUBFP);
-        var subdivResults = await queryWorker('select * from municipal_results_idx where officeId=? and municipalCode=?', [manifest.office.id, municipalCode])
-        if (subdivResults.length == 0) {
-          console.log(municipalCode, 'NO ELECTION DATA FOUND', subdiv.feature.properties)
-          subdiv.setStyle({
-            fillColor: 'black'
-          })
-        }
-      }
-    });*/
-
-    async function update_subdivs() {
-      return new Promise((resolve, reject) => {
-        const iterator = manifest.subdivisionLayer.getLayers()[Symbol.iterator]();
-
-        async function update_next_subdiv() {
-          const {value: subdiv, done} = iterator.next();
-          if (done) {
-            resolve();
-            return;
-          }
-
-          if (subdiv.feature.properties.COUNTYFP != countyCode) {
-            manifest.subdivisionLayer.removeLayer(subdiv);
-            manifest.filterSubs.push(subdiv);
-            await update_next_subdiv();
-            return;
-          }
-
-          var municipalCode = Number(subdiv.feature.properties.COUSUBFP)
-          var subdivResults = await queryWorker('select * from indexed_municipal_results where officeId=? and municipalCode=? ORDER BY votes desc', [manifest.office.id, municipalCode])
-          if (subdivResults.length == 0) {
-            console.log(municipalCode, subdiv.feature.properties.NAMELSAD, "NO ELECTION DATA", subdiv.feature.properties)
-            manifest.subdivisionLayer.removeLayer(subdiv);
-            manifest.filterSubs.push(subdiv);
-            await update_next_subdiv();
-            return;
-          }
-
-
-          var winner = manifest.candidates[subdivResults[0].candidateId];
-          subdiv.setStyle({
-            fillColor: '#' + winner.color[2],
-            weight: 1,
-            color: 'black',
-            fillOpacity: 0.7
-          })
-
-          subdiv.on('mouseover', function(event){
-            event.layer = subdiv;
-            manifest.subdivMouseover(event, municipalCode)
-          })
-
-
-          await update_next_subdiv();
-        }
-
-        update_next_subdiv();
-      })
-    }
-
-    await update_subdivs();
-    manifest.subdivisionLayer.addTo(map);
-  }
-
-
-
-  function update_candidate_box_subdiv(subdivResults) {
-    document.getElementById('county-name').innerHTML = subdivResults[0].municipalName;
-
-    var candidateBox1 = document.getElementById('candidates');
-
-    var candidateBox = document.createElement('div')
-
-    var goBack = document.createElement("div");
-    goBack.classList.add("candidate-box");
-    goBack.classList.add("back-button");
-   // goBack.style.backgroundColor='grey';
-
-    var goBackN = document.createElement("div")
-    goBackN.className = "candidate-name"
-    goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
-    goBack.appendChild(goBackN)
-    goBack.onclick = function(){
-      loadOfficeManifest(manifest.category.id)
-    }
-    candidateBox.appendChild(goBack)
-
-    async function internal() {
-      var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_municipal_results where officeId=? and municipalCode=?', [manifest.office.id, subdivResults[0].municipalCode]))[0].votes;
-
-      for (let subdiv of subdivResults) {
-        var candidate = manifest.candidates[subdiv.candidateId];
-        var cb = document.createElement("div");
-        cb.classList.add("candidate-box");
-        cb.style.borderColor = '#' + candidate.color[4];
-
-        var candidateName = document.createElement("div")
-        candidateName.className = "candidate-name"
-        candidateName.innerHTML = subdiv.candidateName
-        cb.appendChild(candidateName)
-
-        var percentageBox = document.createElement("div")
-        percentageBox.className = 'candidate-percentage'
-        percentageBox.style.color = '#' + candidate.color[4]
-        percentageBox.innerHTML = ((subdiv.votes / totalVotes) * 100).toFixed(2) + '%'
-        cb.appendChild(percentageBox)
-
-        var rawVotes = document.createElement('div')
-        rawVotes.className = 'candidate-raw-votes'
-        rawVotes.innerHTML = subdiv.votes.toLocaleString(undefined)
-        cb.appendChild(rawVotes)
-
-        candidateBox.appendChild(cb);
-      }
-    }
-
-    internal().then(function(){
-      candidateBox1.innerHTML = ''
-      candidateBox1.appendChild(candidateBox)
-    })
-  }
-
-  function update_candidate_box(countyResults) {
-    document.getElementById('county-name').innerHTML = countyResults[0].countyName;
-
-    var candidateBox1 = document.getElementById('candidates');
-
-    var candidateBox = document.createElement('div')
-
-    var goBack = document.createElement("div");
-    goBack.classList.add("candidate-box");
-    goBack.classList.add("back-button");
-   // goBack.style.backgroundColor='grey';
-
-    var goBackN = document.createElement("div")
-    goBackN.className = "candidate-name"
-    goBackN.innerHTML = 'Back to <b>' + manifest.category.name + '</b>';
-    goBack.appendChild(goBackN)
-    goBack.onclick = function(){
-      loadOfficeManifest(manifest.category.id)
-    }
-    candidateBox.appendChild(goBack)
-
-    async function internal_ucb() {
-      var totalVotes = (await queryWorker('select sum(votes) as votes from indexed_county_results where officeId=? and countyName LIKE ? ORDER BY votes desc', [manifest.office.id, countyResults[0].countyCode]))[0].votes
-
-      for (let county of countyResults) {
-        var candidate = manifest.candidates[county.candidateId]
-        var cb = document.createElement("div");
-        cb.classList.add("candidate-box");
-        cb.style.borderColor = '#' + candidate.color[4];
-
-        var candidateName = document.createElement("div")
-        candidateName.className = "candidate-name"
-        candidateName.innerHTML = county.candidateName
-        cb.appendChild(candidateName)
-
-        var percentageBox = document.createElement("div")
-        percentageBox.className = 'candidate-percentage'
-        percentageBox.style.color = '#' + candidate.color[4]
-        percentageBox.innerHTML = ((county.votes / totalVotes) * 100).toFixed(2) + '%'
-        cb.appendChild(percentageBox)
-
-        var rawVotes = document.createElement('div')
-        rawVotes.className = 'candidate-raw-votes'
-        rawVotes.innerHTML = county.votes.toLocaleString(undefined)
-        cb.appendChild(rawVotes)
-
-        candidateBox.appendChild(cb);
-      }
-
-    }
-
-    internal_ucb().then(function(){
-      candidateBox1.innerHTML = ''
-      candidateBox1.appendChild(candidateBox)
-    });
-  }
-</script>
-
-<script>
-  async function createWorker() {
-    manifest.worker = new Worker('./worker.js')
-    manifest.worker.queries = {}
-    manifest.worker.onmessage = function(event) {
-      //console.log('extern worker message:',event.data)
-      if (event.data.state) {
-        if (event.data.state == 'connected') {
-          resolvePromise();
-        }
-      } else if (event.data.result) {
-        queryResolved(event.data)
-      }
-    }
-
-    manifest.worker.postMessage({action:'init'})
-
-    return new Promise((resolve, reject) => {
-      resolvePromise = resolve;
-      rejectPromise = reject
-
-      manifest.worker.onerror = rejectPromise
-      manifest.worker.onmessageerror = rejectPromise
-    })
-  }
-
-  manifest.workerCreator = createWorker();
-
-  async function queryResolved(data) {
-    manifest.worker.queries[data.id].promise.resolve(data.result)
-  }
-
-  async function queryWorker(query, params=[]) {
-    await manifest.workerCreator;
-    var uuid = generateUUID();
-    manifest.worker.queries[uuid] = {}
-
-    var p = new Promise((resolve, reject) => {
-      resolvePromise = resolve;
-      rejectPromise = reject
-    });
-
-    p.resolve = resolvePromise;
-
-    manifest.worker.queries[uuid].promise = p
-
-    manifest.worker.postMessage({action:'query', query:query, params:params, id:uuid})
-    return p
   }
 </script>
 
