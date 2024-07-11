@@ -256,11 +256,10 @@ fn main() {
             rouille::start_server(bind_to, move |request| {
                 rouille::router!(request, 
                     (GET) ["/"] => rouille::Response::from_file("text/html", File::open("public/index.html").unwrap()),
-                    (GET) ["/sql.js"] => rouille::Response::from_file("application/javascript", File::open("public/sql.js").unwrap()),
-                    (GET) ["/worker.js"] => rouille::Response::from_file("application/javascript", File::open("public/worker.js").unwrap()),
                     (GET) ["/elections.db"] => rouille::Response::from_file("application/octet-stream", File::open("elections.db").unwrap()),
-                    (GET) ["/elections/{year}/{election_class}/map/{file}", year: String, election_class: String, file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("elections/{year}/{election_class}/map/{file}")).unwrap()),
-                    (GET) ["/maps/county-map/{file}", file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("maps/county/{}", file)).unwrap()),
+
+                    (GET) ["/elections/{year}/{election_class}/map/{file}", year: String, election_class: String, file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("elections/{year}/{election_class}/map/{file}")).unwrap()).with_public_cache(u64::max_value()),
+                    (GET) ["/maps/county-map/{file}", file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("maps/county/{}", file)).unwrap()).with_public_cache(u64::max_value()),
 
                     (GET) ["/api/election-manifest"] => router::unpack(router::election_manifest()),
                     (GET) ["/api/election-categories/{election_id}", election_id: usize] => router::unpack(router::election_categories(election_id)),
