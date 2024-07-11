@@ -271,6 +271,7 @@ fn main() {
                     (GET) ["/api/{election_id}/{office_id}/counties", office_id: usize, election_id: usize] => router::unpack(router::counties(election_id, office_id)),
                     (GET) ["/api/municipal-results/{office_id}/{municipal_fips}", office_id: usize, municipal_fips: String] => router::unpack(router::municipal_results(office_id, municipal_fips)),
                     (GET) ["/api/{office_id}/{county_id}/municipalities", office_id: usize, county_id: usize] => router::unpack(router::municipalities(office_id, county_id)),
+                    (GET) ["/api/{office_id}/all_municipalities", office_id: usize] => router::unpack(router::all_municipalities(office_id)),
 
                     _ => rouille::Response::empty_404()
                 );
