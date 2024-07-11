@@ -263,7 +263,9 @@ fn main() {
 
             println!("Starting server on {}", bind_to);
             rouille::start_server(bind_to, move |request| {
-                rouille::router!(request, 
+                let start = std::time::SystemTime::now();
+
+                let resp = rouille::router!(request, 
                     (GET) ["/"] => rouille::Response::from_file("text/html", File::open("public/index.html").unwrap()),
                     (GET) ["/elections.db"] => rouille::Response::from_file("application/octet-stream", File::open("elections.db").unwrap()),
 
@@ -280,7 +282,11 @@ fn main() {
                     (GET) ["/api/{office_id}/{county_id}/municipalities", office_id: usize, county_id: usize] => router::unpack(router::municipalities(office_id, county_id)),
 
                     _ => rouille::Response::empty_404()
-                )
+                );
+
+                println!("Handling {} took {}ms", request.url().underline(), std::time::SystemTime::now().duration_since(start).unwrap().as_millis());
+
+                return resp;
             });
         }
     }
