@@ -100,15 +100,6 @@ fn main() {
                 CREATE VIEW municipal_results as select m.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, m.name as municipalName, m.fips as municipalCode, m.electionId from precinct_results r join municipality m on r.municipalId = m.id group by r.candidateId, m.id;
                 CREATE VIEW county_results as select c.id, r.officeId, sum(r.votes) as votes, r.candidateId, r.candidateName, c.name as countyName from precinct_results r join county c on r.countyId = c.id group by r.candidateId, c.id;
                 CREATE VIEW precinct_results as select r.id, c.officeId, r.votes, r.candidateId, c.name as candidateName, p.id as precinctId, p.name as precinctName, p.municipalId, p.countyId from result r inner join candidate c on r.candidateId = c.id inner join precinct p on r.precinctId = p.id;
-
-                CREATE INDEX election_info_idx ON election_info(id, name, date, map);
-                CREATE INDEX county_idx ON county(id, name, electionId);
-                CREATE INDEX municipality_idx ON municipality(id, name, fips, electionId);
-                CREATE INDEX precinct_idx ON precinct(id, name, municipalId, countyId);
-                CREATE INDEX office_category_idx ON office_category(id, name, electionId);
-                CREATE INDEX office_election_idx ON office_election(id, name, categoryId);
-                CREATE INDEX candidate_idx ON candidate(id, name, officeId);
-                CREATE INDEX result_idx ON result(id, votes, candidateId, precinctId);
             ") {
                 Ok(_) => {},
                 Err(why) => {
