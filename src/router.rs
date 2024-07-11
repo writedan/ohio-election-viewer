@@ -52,6 +52,14 @@ impl From<String> for Error {
 	}
 }
 
+impl From<std::num::ParseIntError> for Error {
+	fn from(err: std::num::ParseIntError) -> Self { 
+		Error {
+			error: err.to_string()
+		}
+	}
+}
+
 type Result = std::result::Result<rouille::Response, Error>;
 
 pub fn election_manifest() -> Result {
@@ -132,14 +140,14 @@ pub fn state_results(id: usize) -> Result {
 	let mut stmt = conn.prepare("SELECT sum(votes) as totalVotes from indexed_state_results WHERE officeId=?1")?;
 	let results_vec = stmt.query_map([id], |row| {
 		row.get(0)
-	})?.collect::<Vec<std::result::Result<usize, rusqlite::Error>>>();
+	})?.collect::<Vec<std::result::Result<String, rusqlite::Error>>>();
 	if results_vec.len() > 1 {
 		return Err(Error {
 			error: format!("Expected 1 row, got {}", results_vec.len())
 		});
 	}
 
-	let Ok(total_votes) = &results_vec[0] else { return Err(Error { error: format!("Failed to get total_votes") }) };
+	let Ok(total_votes) = &results_vec[0] else { return Err(Error { error: format!("Failed to get total_votes for officeId={}: {:#?}", id, results_vec) }) };
 
 	let mut stmt = conn.prepare("SELECT * FROM indexed_state_results WHERE officeId=?1")?;
 	let results_vec = stmt.query_map([id], |row| {
@@ -158,7 +166,7 @@ pub fn state_results(id: usize) -> Result {
 	}
 
 	Ok(rouille::Response::json(&SumElectionResult {
-		total_votes: *total_votes,
+		total_votes: total_votes.parse::<usize>()?,
 		candidates: res
 	}))
 }
@@ -189,7 +197,7 @@ fn county_results_query(county_id: usize, office_id: usize) -> std::result::Resu
 		});
 	}
 
-	let Ok(total_votes) = &results_vec[0] else { return Err(Error { error: format!("Failed to get total_votes") }) };
+	let Ok(total_votes) = &results_vec[0] else { return Err(Error { error: format!("Failed to get total_votes for countyId={} and officeId={}: {:?}", county_id, office_id, results_vec) }) };
 
 	let mut stmt = conn.prepare("SELECT candidateName, votes FROM indexed_county_results WHERE countyName=?1 and officeId=?2")?;
 	let results_vec = stmt.query_map([name, &office_id.to_string()], |row| {
@@ -235,9 +243,12 @@ pub fn counties(election_id: usize, office_id: usize) -> Result {
 			Ok(ele) => res.insert(ele.name.clone(), County {
 				name: ele.name.clone(),
 				id: ele.id,
-				election: county_results_query(ele.id, office_id)?
+				election: match county_results_query(ele.id, office_id) {
+					Ok(e) => e,
+					Err(why) => continue
+				}
 			}),
-			Err(why) => return Err(why.to_string().into())
+			Err(why) => None // skip
 		};
 	}
 
