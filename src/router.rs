@@ -140,7 +140,7 @@ pub fn state_results(id: usize) -> Result {
 	let mut stmt = conn.prepare("SELECT sum(votes) as totalVotes from indexed_state_results WHERE officeId=?1")?;
 	let results_vec = stmt.query_map([id], |row| {
 		row.get(0)
-	})?.collect::<Vec<std::result::Result<String, rusqlite::Error>>>();
+	})?.collect::<Vec<std::result::Result<usize, rusqlite::Error>>>();
 	if results_vec.len() > 1 {
 		return Err(Error {
 			error: format!("Expected 1 row, got {}", results_vec.len())
@@ -166,7 +166,7 @@ pub fn state_results(id: usize) -> Result {
 	}
 
 	Ok(rouille::Response::json(&SumElectionResult {
-		total_votes: total_votes.parse::<usize>()?,
+		total_votes: *total_votes,
 		candidates: res
 	}))
 }
