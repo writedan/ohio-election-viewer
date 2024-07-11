@@ -237,14 +237,27 @@
 
     manifest.countyMap = await manifest.countyMap;
     manifest.municipalMap = await manifest.municipalMap;
-    manifest.municipalResults = get_api(`./api/${manifest.office.id}/all_municipalities`);
     let state_results = await get_api(`./api/state-results/${manifest.office.id}`);
-    manifest.stateResults = state_results;
     let counties = await get_api(`./api/${manifest.election.id}/${manifest.office.id}/counties`);
+
+    let max_votes = 0, min_votes = 0;
 
     for (county in counties) {
       counties[county.toLowerCase()] = counties[county];
+
+      let rc = counties[county.toLowerCase()]
+      let vote_per = rc.election.candidates[0].votes / rc.election.total_votes;
+      if (vote_per > max_votes) {
+        max_votes = vote_per;
+      }
+
+      if (vote_per < min_votes) {
+        min_votes = vote_per;
+      }
     }
+
+    manifest.vote_gradients = (max_votes - min_votes) / 5;
+    console.log(`vote gradient: ${manifest.vote_gradients * 100}%`)
 
     while (manifest.filterCounties.length) {
       manifest.filterCounties.pop().addTo(manifest.countyMap);
@@ -272,8 +285,14 @@
           }
 
           let county_results = counties[county.feature.properties.COUNTY.toLowerCase()];
+
+          let color_gradient = Math.round((county_results.election.candidates[0].votes / county_results.election.total_votes) / manifest.vote_gradients) - 1;
+          if (color_gradient > 4) {
+            console.warn(`${county_results.name} color gradient exceeds maximum: ${color_gradient}`);
+          }
+
           county.setStyle({
-            fillColor: '#' + manifest.candidates[county_results.election.candidates[0].name].color[4],
+            fillColor: '#' + manifest.candidates[county_results.election.candidates[0].name].color[color_gradient],
             weight: 1,
             color: 'black',
             fillOpacity: 0.7
@@ -296,6 +315,11 @@
             });
           });
 
+          county.on("click", function(){
+            map.fitBounds(county.getBounds());
+            loadMunicipalResults(county_results);
+          });
+
           update_next_county();
         }
 
@@ -308,50 +332,52 @@
     manifest.countyMap.addTo(map);
   }
 
-  async function loadMunicipalResults() {
-    console.log("begin")
-    document.getElementById('county-name').innerHTML = manifest.office.name;
+  async function loadMunicipalResults(county_results) {
+    console.log(county_results);
+    document.getElementById('county-name').innerHTML = county_results.name + " County";
     let candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = "Waiting for maps and database to load.";
 
-    let state_results = manifest.stateResults;
-
-    let municipalities = await manifest.municipalResults;
-
-    draw_candidate_box(state_results);
-
     manifest.countyMap = await manifest.countyMap;
     manifest.municipalMap = await manifest.municipalMap;
-    manifest.municipalResults = await manifest.municipalResults;
 
     map.removeLayer(manifest.countyMap);
 
-    console.log(`${manifest.filterMunicipalities.length} municipalities to be restored.`)
     while (manifest.filterMunicipalities.length) {
       manifest.filterMunicipalities.pop().addTo(manifest.municipalMap);
     }
+
+    let municipalities = await get_api(`./api/${manifest.office.id}/${county_results.id}/municipalities`);
+
+    draw_candidate_box(county_results.election);
 
     async function update_municipalities() {
       return new Promise((resolve, reject) => {
         const iterator = manifest.municipalMap.getLayers()[Symbol.iterator]();
 
         async function update_next_municipality() {
-           const {value: municipality, done} = iterator.next();
-           if (done) {
+          const {value: municipality, done} = iterator.next();
+          if (done) {
             resolve();
             return;
-           }
+          }
 
-           let municipal_results = manifest.municipalResults[municipality.feature.properties.fips];
-           if (municipal_results === undefined) {
+          if (!(municipality.feature.properties.fips in municipalities)) {
             manifest.filterMunicipalities.push(municipality);
             manifest.municipalMap.removeLayer(municipality);
             update_next_municipality();
             return;
-           }
+          }
 
-           municipality.setStyle({
-            fillColor: '#' + manifest.candidates[municipal_results.election.candidates[0].name].color[4],
+          let municipal_results = municipalities[municipality.feature.properties.fips];
+
+          let color_gradient = Math.round((municipal_results.election.candidates[0].votes / municipal_results.election.total_votes) / manifest.vote_gradients) - 1;
+          if (color_gradient > 4) {
+            console.warn(`${municipal_results.name} color gradient exceeds maximum: ${color_gradient}`);
+          }
+
+          municipality.setStyle({
+            fillColor: '#' + manifest.candidates[municipal_results.election.candidates[0].name].color[color_gradient],
             weight: 1,
             color: 'black',
             fillOpacity: 0.7
@@ -367,8 +393,8 @@
           });
 
           municipality.on("mouseout", function(){
-            document.getElementById('county-name').innerHTML = manifest.office.name;
-            draw_candidate_box(state_results);
+            document.getElementById('county-name').innerHTML = county_results.name + " County";
+            draw_candidate_box(county_results.election);
             municipality.setStyle({
               fillOpacity: 0.7
             });
@@ -379,9 +405,13 @@
 
         update_next_municipality();
       });
+
+      update_next_municipality();
     }
 
     update_municipalities();
+
+    manifest.municipalMap.addTo(map);
   }
 
   async function assign_candidate_colors(results) {
@@ -462,45 +492,13 @@
   manifest.filterCounties = [];
   manifest.filterMunicipalities = [];
 
-  map.on('zoomend', function () {
-    var bounds = map.getBounds();
-
-    if (checkPercentageInView(bounds) > 0.50) {
-      if (map.hasLayer(manifest.municipalMap)) {
-        manifest.countyMap.addTo(map);
-        map.removeLayer(manifest.municipalMap);
-        loadOfficeResults();
-      }
-    } else if (checkPercentageInView(bounds) <= 0.50) {
-      if (map.hasLayer(manifest.countyMap)) {
-        map.removeLayer(manifest.countyMap);
-        manifest.municipalMap.addTo(map);
-        loadMunicipalResults();
-      }
+  map.on("click", function(event){
+    if (event.originalEvent.target == map.getContainer() && map.hasLayer(manifest.municipalMap)) {
+      map.removeLayer(manifest.municipalMap);
+      manifest.countyMap.addTo(map);
+      loadOfficeResults();
     }
-  });
-
-  function checkPercentageInView(bounds) {
-    var stateBounds = L.latLngBounds(
-      L.latLng(37.7719, -85.6052), // Southwest corner
-      L.latLng(41.9773, -80.5188)  // Northeast corner
-    );
-
-    var intersection = getIntersection(bounds, stateBounds);
-
-    var percentageInView = (intersection.getNorthEast().lat - intersection.getSouthWest().lat) / (stateBounds.getNorthEast().lat - stateBounds.getSouthWest().lat);
-
-    return percentageInView;
-  }
-
-  function getIntersection(bounds1, bounds2) {
-    var swLat = Math.max(bounds1.getSouthWest().lat, bounds2.getSouthWest().lat);
-    var swLng = Math.max(bounds1.getSouthWest().lng, bounds2.getSouthWest().lng);
-    var neLat = Math.min(bounds1.getNorthEast().lat, bounds2.getNorthEast().lat);
-    var neLng = Math.min(bounds1.getNorthEast().lng, bounds2.getNorthEast().lng);
-
-    return L.latLngBounds(L.latLng(swLat, swLng), L.latLng(neLat, neLng));
-  }
+  })
 </script>
 
 </body>
