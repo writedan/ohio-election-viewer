@@ -393,21 +393,25 @@ pub fn run(election_path: String, name: &Option<String>) {
     print!("\tindexed_precinct_results");
     std::io::stdout().flush().expect("Unable to flush stdout.");
     conn.execute("CREATE TABLE indexed_precinct_results AS SELECT * FROM precinct_results", ()).unwrap();
+    conn.execute("CREATE INDEX IF NOT EXISTS indexed_precinct_results_idx ON indexed_precinct_results(id, officeId, votes, candidateId, candidateName, precinctId, precinctName, municipalId, countyId)", ()).unwrap();
     println!(" {}", "done".green());
 
     print!("\tindexed_county_results");
     std::io::stdout().flush().expect("Unable to flush stdout.");
     conn.execute("CREATE TABLE indexed_county_results AS SELECT * FROM county_results", ()).unwrap();
+    conn.execute("CREATE INDEX IF NOT EXISTS indexed_county_results_idx ON indexed_county_results(id, officeId, votes, candidateId, candidateName, countyName)", ()).unwrap();
     println!(" {}", "done".green());
 
     print!("\tindexed_municipal_results");
     std::io::stdout().flush().expect("Unable to flush stdout.");
     conn.execute("CREATE TABLE indexed_municipal_results AS SELECT * FROM municipal_results", ()).unwrap();
+    conn.execute("CREATE INDEX IF NOT EXISTS indexed_municipal_results_idx ON indexed_municipal_results(id, officeId, votes, candidateId, candidateName, municipalName, municipalCode, electionId)", ()).unwrap();
     println!(" {}", "done".green());
 
     print!("\tindexed_state_results");
     std::io::stdout().flush().expect("Unable to flush stdout.");
     conn.execute("CREATE TABLE indexed_state_results AS SELECT * FROM state_results", ()).unwrap();
+    conn.execute("CREATE INDEX IF NOT EXISTS indexed_state_results_idx ON indexed_state_results(officeId, votes, candidateId, candidateName)", ()).unwrap();
     println!(" {}", "done".green());
 
     conn.commit().unwrap();
