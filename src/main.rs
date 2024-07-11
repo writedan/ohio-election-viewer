@@ -1,4 +1,5 @@
 mod converter;
+mod router;
 use clap::{Parser, Subcommand};
 
 
@@ -249,6 +250,7 @@ fn main() {
 
         Commands::RunServer { bind_to } => {
             use std::fs::File;
+            use std::collections::HashMap;
 
             println!("Starting server on {}", bind_to);
             rouille::start_server(bind_to, move |request| {
@@ -259,6 +261,14 @@ fn main() {
                     (GET) ["/elections.db"] => rouille::Response::from_file("application/octet-stream", File::open("elections.db").unwrap()),
                     (GET) ["/elections/{year}/{election_class}/map/{file}", year: String, election_class: String, file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("elections/{year}/{election_class}/map/{file}")).unwrap()),
                     (GET) ["/maps/county-map/{file}", file: String] => rouille::Response::from_file("application/octet-stream", File::open(format!("maps/county/{}", file)).unwrap()),
+
+                    (GET) ["/api/election-manifest"] => router::unpack(router::election_manifest()),
+                    (GET) ["/api/election-categories/{election_id}", election_id: usize] => router::unpack(router::election_categories(election_id)),
+                    (GET) ["/api/category-offices/{category_id}", category_id: usize] => router::unpack(router::category_offices(category_id)),
+                    (GET) ["/api/state-results/{office_id}", office_id: usize] => router::unpack(router::state_results(office_id)),
+                    (GET) ["/api/county-results/{office_id}/{county_id}", office_id: usize, county_id: usize] => router::unpack(router::county_results(county_id, office_id)),
+                    (GET) ["/api/{election_id}/{office_id}/counties", office_id: usize, election_id: usize] => router::unpack(router::counties(election_id, office_id)),
+
                     _ => rouille::Response::empty_404()
                 )
             });
