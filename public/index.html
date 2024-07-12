@@ -256,7 +256,7 @@
       }
     }
 
-    manifest.vote_gradients = (max_votes - min_votes) / 5;
+    manifest.vote_gradients = /*(max_votes - min_votes) / 5*/ 0.2;
     console.log(`vote gradient: ${manifest.vote_gradients * 100}%`)
 
     while (manifest.filterCounties.length) {
