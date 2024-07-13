@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ohio Election Visualizer</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet@latest/dist/leaflet.js"></script>
   <script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
   <script src="http://calvinmetcalf.github.io/leaflet.shapefile/leaflet.shpfile.js"></script>
   <style>
@@ -154,6 +154,11 @@
     let candidateBox = document.getElementById("candidates");
 
     candidateBox.innerHTML = '';
+
+    candidateBox.appendChild(make_back_button("Election Index", function(){
+      loadElectionManifest();
+    }));
+
     for (let category of categories) {
       let candidate = document.createElement("div");
       candidate.classList.add("candidate-box");
@@ -211,7 +216,15 @@
     let offices = await get_api(`./api/category-offices/${manifest.category.id}`);
     let candidateBox = document.getElementById("candidates");
 
+    map.removeLayer(manifest.countyMap);
+    map.removeLayer(manifest.municipalMap);
+
     candidateBox.innerHTML = '';
+
+    candidateBox.appendChild(make_back_button(manifest.election.name, function(){
+      loadCategoryManifest();
+    }))
+
     for (let office of offices) {
       let candidate = document.createElement("div");
       candidate.classList.add("candidate-box");
@@ -283,6 +296,10 @@
             update_next_county();
             return;
           }
+
+          county.off("mouseover");
+          county.off("mouseout");
+          county.off("click");
 
           let county_results = counties[county.feature.properties.COUNTY.toLowerCase()];
 
@@ -376,6 +393,9 @@
             color_gradient = 5;
           }
 
+          municipality.off("mouseover");
+          municipality.off("mouseout");
+
           municipality.setStyle({
             fillColor: '#' + manifest.candidates[municipal_results.election.candidates[0].name].color[color_gradient],
             weight: 1,
@@ -435,6 +455,10 @@
     let candidateBox = document.getElementById("candidates");
     candidateBox.innerHTML = '';
 
+    candidateBox.appendChild(make_back_button(manifest.category.name, function(){
+      loadOfficeManifest();
+    }))
+
     for (let cand of results.candidates) {
       let color = manifest.candidates[cand.name].color;
 
@@ -477,6 +501,20 @@
 
     let keys = Object.keys(colors)
     return keys.pop()
+  }
+
+  function make_back_button(text, callback) {
+    var goBack = document.createElement("div");
+    goBack.classList.add("candidate-box");
+    goBack.classList.add("back-button");
+
+    var goBackN = document.createElement("div")
+    goBackN.className = "candidate-name"
+    goBackN.innerHTML = `Back to <b>${text}</b>`;
+    goBack.appendChild(goBackN)
+    goBack.onclick = callback;
+
+    return goBack;
   }
 
   loadElectionManifest();
