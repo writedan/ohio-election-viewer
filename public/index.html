@@ -209,6 +209,9 @@
 
       return (await municipalLayer);
     }();
+
+    manifest.filterCounties = [];
+    manifest.filterMunicipalities = [];
   }
 
   async function loadOfficeManifest() {
@@ -526,9 +529,6 @@
       purple: ['E2B2FF', 'B883FF', 'B852FF', '8F00FF', '5900A6', '240042'],
       yellow: ['FFFFBF', 'FFFF8C', 'FFFF52', 'E5E500', '999900', '3d3d00']
     }
-
-  manifest.filterCounties = [];
-  manifest.filterMunicipalities = [];
 
   map.on("click", function(event){
     if (event.originalEvent.target == map.getContainer() && map.hasLayer(manifest.municipalMap)) {
